@@ -1,0 +1,14 @@
+# Ignore emacs backups & auto save files
+*~
+\#*\#
+.\#*
+
+# Emacs tags
+TAGS
+
+# Various FASLs
+*.fasl
+*.xfasl
+*.64xfasl
+*.dx32fsl
+*.dx64fsl
