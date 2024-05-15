@@ -1,7 +1,7 @@
 # Štar: a simple and extensible iteration construct
 Štar is a concise and extensible iteration construct for Common Lisp which aims to be pleasant to use, easy to understand, general, and not to look like Fortran.
 
-For an overview of Štar, see [here](https://www.tfeb.org/fragments/2024/05/01/an-iteration-construct-for-common-lisp/ "Štar: an iteration construct for Common Lisp"): this document is just the reference manual.
+For an overview of Štar, see [here](https://www.tfeb.org/fragments/2024/05/15/an-iteration-construct-for-common-lisp/ "Štar: an iteration construct for Common Lisp"): this document is just the reference manual.
 
 At the time of writing, Štar itself is fairly complete.  The predefined iterators are less finished.  Until this paragraph goes away you should use them with some caution: things may change in incompatible ways.  I have tried to indicate the more flaky iterators below.
 
