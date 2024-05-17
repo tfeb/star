@@ -76,14 +76,12 @@
 See the manual.  Optimizable."
   (declare (dynamic-extent arg/s))
   (destructuring-match arg/s
+    (()
+     (in-hairy-range :from 0 :by 1))
     ((before)
-     (:when (typep before '(or real (member *))))
-     ;; Try and make the zero be of the appropriate type
-     (in-hairy-range :from (typecase before
-                             (float
-                              (coerce 0 (type-of before)))
-                             ((or real (member *))
-                              0))
+     (:when (typep before 'real))
+     ;; Make the zero be of the appropriate type
+     (in-hairy-range :from (coerce 0 (type-of before))
                      :before before))
     ((&key from to after before by type)
      (declare (ignore from to after before by type))
@@ -100,20 +98,19 @@ See the manual.  Optimizable."
   ;; Defaultify arguments, check types, work out effective type, then
   ;; call IN-SIMPLE-RANGE.  TYPE is not particularly useful here, but
   ;; it will be useful for the optimizer.
-  (declare (type real from by)
-           (type (or real (member *)) to before))
+  (declare (type real from after before to by))
   (when (or (and from-p after-p)
             (not (or from-p after-p)))
     (star-error "need exactly one of FROM and AFTER"))
-  (when (or (and to-p before-p)
-            (not (or to-p before-p)))
-    (star-error "need exactly one of TO and BEFORE"))
+  (when (and to-p before-p)
+    (star-error "need at most one of TO and BEFORE"))
   (unless (subtypep type 'real)
     (star-error "~S is not a recognizable subtype of REAL" type))
   (let* ((by (cond
               (by-p
                by)
-              ((or (eq to '*) (eq before '*))
+              ((not (or to-p before-p))
+               ;; unbounded range
                1)
               (t
                (let ((s (signum (- (if to-p to before)
@@ -123,35 +120,33 @@ See the manual.  Optimizable."
                    s)))))
          (start (if from-p from (+ after by)))
          (limit (cond
-                 ((or (eq to '*) (eq before '*))
-                  nil)
                  (to-p
                   (+ to by))
+                 (before-p
+                  before)
                  (t
-                  before)))
-         (widest-float-type (widest-float-type start limit by)))
-    (if widest-float-type
-        ;; Some things are floats, make everything be
-        (let ((by (coerce by widest-float-type))
-              (start (coerce start widest-float-type))
-              (limit (coerce limit widest-float-type)))
-          (assert (and (typep start type)
-                       (typep by type)
-                       (typep limit type))
-              (start by limit)
-            "at least one of range start ~S, range step ~S & range limit ~S is not a ~S"
-            start by limit type)
-          (in-simple-range start limit by))
-      ;; Nothing is a float
-      (progn
-        (assert (and (typep start type)
-                     (typep by type)
-                     (typep limit type))
-            (start by limit)
-          "at least one of range start ~S, range step ~S & range limit ~S is not a ~S"
-          start by limit type)
-        (in-simple-range start limit by)
-        (in-simple-range start limit by)))))
+                  nil)))
+         (widest-float-type (if limit
+                                (widest-float-type start limit by)
+                                (widest-float-type start by))))
+    (multiple-value-bind (start limit by)
+        (if widest-float-type
+            ;; Some things are floats, make everything be
+            (values (coerce start widest-float-type)
+                    (if limit (coerce limit widest-float-type) nil)
+                    (coerce start widest-float-type))
+          (values start limit by))
+      ;; Check things are compatible with the given type
+      (assert (and (typep start type)
+                   (typep by type))
+          (start by)
+        "at least one of range start ~S & range step ~S is not a ~S"
+        start by type)
+      (when limit
+        (assert (typep limit type)
+            (limit)
+          "range limit ~S is not a ~S" limit type))
+      (in-simple-range start limit by))))
 
 (defun in-simple-range (start limit by)
   ;; This is now very simple-minded: the optimizer will do the things
@@ -180,18 +175,33 @@ See the manual.  Optimizable."
 
 (define-iterator-optimizer (in-range *builtin-iterator-optimizer-table*) (form environment)
   (destructuring-match form
+    ((_)
+     (in-hairy-unbounded-range-optimizer :environment environment :from 0))
     ((_ before)
-     (in-hairy-range-optimizer :environment environment :from 0 :before before))
-    ((_ &rest args &key from to after before by type)
+     (in-hairy-bounded-range-optimizer :environment environment :from 0 :before before))
+    ((_ &rest args &key
+        (from nil from-p) (after nil after-p)
+        (to nil to-p) (before nil before-p)
+        by type)
      (declare (ignore from to after before by type))
-     (apply #'in-hairy-range-optimizer :environment environment args))
+     (when (or (and from-p after-p)
+               (not (or from-p after-p)))
+       (star-error "need exactly one of FROM and AFTER"))
+     (when (and to-p before-p)
+       (star-error "need at most one of TO and BEFORE"))
+     (apply (if (or to-p before-p)
+                #'in-hairy-bounded-range-optimizer
+                #'in-hairy-unbounded-range-optimizer)
+            :environment environment args))
     (otherwise
      (syntax-error form "bad range"))))
 
 (defun compute-effective-step (begin begin-literal end end-literal by by-p)
   ;; Return the effective step and whether it is literal.  If it is
   ;; not literal it can return NIL and NIL meaning 'needs computed at
-  ;; runtime'.  If BEGIN and END are literals they are known to be sane.
+  ;; runtime'.  If BEGIN and END are literals they are known to be
+  ;; sane.  END may be NIL which is the case for an unbounded
+  ;; iteration.
   (if by-p
       (multiple-value-bind (by by-literal) (literal by)
         (if by-literal
@@ -200,53 +210,50 @@ See the manual.  Optimizable."
     ;; no given BY
     (cond
      ((and begin-literal end-literal)
-      (cond
-       ((realp end)
+      (typecase end
+       (real
         (values (case (round (signum (- end begin)))
                   (-1 -1)
                   ((0 1) 1))
                 t))
-       ((eql end '*)
+       (null
         (values 1 t))
        (t
         (catastrophe "mutant end"))))
-      (end-literal
-       (cond
-        ((eql end '*)
-         (values 1 t))
-        ((realp end)
+     (end-literal
+      (typecase end
+        (null
+          (values 1 t))
+        (real
+         ;; Don't know because start is not literal
          (values nil nil))
         (t
          (catastrophe "mutant end"))))
-      (t
-       (values nil nil)))))
+     (t
+      ;; Just hopeless
+      (values nil nil)))))
 
-(defun in-hairy-range-optimizer (&key environment
-                                      (from nil from-p)
-                                      (after nil after-p)
-                                      (before nil before-p)
-                                      (to nil to-p)
-                                      (by nil by-p)
-                                      (type '(quote real) type-p))
+(defun in-hairy-bounded-range-optimizer (&key environment
+                                              (from nil from-p)
+                                              (after nil)
+                                              (before nil)
+                                              (to nil to-p)
+                                              (by nil by-p)
+                                              (type 'real type-p))
+  ;; The range is bounded
   (declare (ignore environment))        ;a cleverer version might use this
   ;; We want to optimize the cases where the type is a literal, and
   ;; also where the ranges are literals, so we need to work all this
   ;; out.  Other cases we just give up on.
-  (when (or (and from-p after-p)
-            (not (or from-p after-p)))
-    (star-error "exactly one of FROM and AFTER"))
-  (when (or (and to-p before-p)
-            (not (or to-p before-p)))
-    (star-error "exactly one of TO and BEFORE"))
   (multiple-value-bind (begin begin-literal) (literal (if from-p from after))
+    (when (and begin-literal (not (realp begin)))
+      (star-error "given begin ~S which is not a real" begin))
     (multiple-value-bind (end end-literal) (literal (if to-p to before))
-      (when (and begin-literal (not (realp begin)))
-        (star-error "given begin ~S which is not a real" begin))
-      (when (and end-literal (not (or (realp end) (eql end '*))))
-        (star-error "given end ~S which is not either a real or '*" end))
+      (when (and end-literal (not (realp end)))
+        (star-error "given end ~S which not a real" end))
       (multiple-value-bind (step step-literal) (compute-effective-step begin begin-literal
-                                                                   end end-literal
-                                                                   by by-p)
+                                                                       end end-literal
+                                                                       by by-p)
         (when (and step-literal (not (realp step)))
           (star-error "given step ~S which is not a real" step))
         (cond
@@ -254,8 +261,6 @@ See the manual.  Optimizable."
           ;; literal bounds
           (literal-values-range-optimizer (if from-p begin (+ begin step))
                                           (cond
-                                           ((eql end '*)
-                                            nil)
                                            (to-p
                                             (+ end step))
                                            (t
@@ -266,12 +271,48 @@ See the manual.  Optimizable."
           (multiple-value-bind (type type-literal) (literal type)
             (if type-literal
                 ;; We can use the declared type
-                (literal-type-range-optimizer begin end step step-literal by-p type from-p to-p)
+                (literal-type-bounded-range-optimizer
+                 begin end step step-literal by-p type from-p to-p)
               ;; give up & reject it
               (note "giving up on a range with no literal type"))))
          (t
           ;; No user-given type at all: just reject it
           (note "giving up on a range with no type information at all")))))))
+
+(defun in-hairy-unbounded-range-optimizer (&key environment
+                                                (from nil from-p)
+                                                (after nil)
+                                                (by nil by-p)
+                                                (type 'real type-p))
+  ;; The range is unbounded: this is similar to the previous case
+  (declare (ignore environment))        ;a cleverer version might use this
+  ;; We want to optimize the cases where the type is a literal, and
+  ;; also where the ranges are literals, so we need to work all this
+  ;; out.  Other cases we just give up on.
+  (multiple-value-bind (begin begin-literal) (literal (if from-p from after))
+    (when (and begin-literal (not (realp begin)))
+      (star-error "given begin ~S which is not a real" begin))
+    (multiple-value-bind (step step-literal) (compute-effective-step begin begin-literal
+                                                                     nil t
+                                                                     by by-p)
+        (when (and step-literal (not (realp step)))
+          (star-error "given step ~S which is not a real" step))
+        (cond
+         ((and begin-literal step-literal)
+          ;; literal begin and step
+          (literal-values-range-optimizer (if from-p begin (+ begin step))
+                                          nil step type type-p))
+         (type-p
+          ;; user-given type
+          (multiple-value-bind (type type-literal) (literal type)
+            (if type-literal
+                ;; We can use the declared type
+                (literal-type-unbounded-range-optimizer begin step step-literal by-p type from-p)
+              ;; give up & reject it
+              (note "giving up on a range with no literal type"))))
+         (t
+          ;; No user-given type at all: just reject it
+          (note "giving up on a range with no type information at all"))))))
 
 (defun literal-values-range-optimizer (start limit step type type-p)
   ;; START STEP are numeric literals, LIMIT is either numeric or NIL
@@ -465,8 +506,9 @@ See the manual.  Optimizable."
                `(prog1 ,<v>
                   (incf ,<v> ,step)))))))))))
 
-(defun literal-type-range-optimizer (begin end step step-literal step-p type from-p to-p)
-  ;; There is a literal type which can be used, and the step may be literal
+(defun literal-type-bounded-range-optimizer (begin end step step-literal step-p type from-p to-p)
+  ;; There is a literal type which can be used, and the step may be
+  ;; literal.  The range is bounded so end is never NIL
   (if step-literal
       ;; This is the nice case
       (let ((step (coerce step type)))
@@ -474,30 +516,20 @@ See the manual.  Optimizable."
           (values
            t
            `(((,<begin> ,<end>)
-              (values ,begin
-                      (let ((end ,end))
-                        (etypecase end
-                          (number end)
-                          ((member *) nil))))
-              (declare (type ,type ,<begin>)
-                       (type (or ,type null) ,<end>)))
+              (values ,begin ,end)
+              (declare (type ,type ,<begin> ,<end>)))
              ((,<v> ,<limit>)
               (values
                ,(if from-p
                     <begin>
                   `(+ ,<begin> ,step))
-               (if ,<end>
-                   ,(if to-p
-                        `(+ ,<end> ,step)
-                      <end>)
-                 ,<begin>))
+               ,(if to-p
+                    `(+ ,<end> ,step)
+                  <end>))
               (declare (type ,type ,<v> ,<limit>))))
            (if (>= step 0)
-               `(if ,<end>
-                    (< ,<v> ,<limit>)
-                  t)
-             `(if ,<end>
-                  (> ,<v> ,<limit>)))
+               `(< ,<v> ,<limit>)
+             `(> ,<v> ,<limit>))
            `(prog1 ,<v>
               (incf ,<v> ,step)))))
     ;; Step is not literal
@@ -506,39 +538,64 @@ See the manual.  Optimizable."
       (values
        t
        `(((,<begin> ,<end>)
-          (values ,begin
-                  (let ((end ,end))
-                    (etypecase end
-                      (number end)
-                      ((member *) nil))))
-          (declare (type ,type ,<begin>)
-                   (type (or ,type null) ,<end>)))
+          (values ,begin ,end)
+          (declare (type ,type ,<begin> ,<end>)))
          ((,<step>)
           ,(if step-p
                `(coerce ,step ',type)
-             `(if ,<end>
-                  (coerce (case (round (signum (- ,<end> ,<begin>)))
-                            (-1 -1)
-                            ((0 1) 1))
-                          ',type)
-                ,(coerce 1 type)))
+             `(coerce (case (round (signum (- ,<end> ,<begin>)))
+                        (-1 -1)
+                        ((0 1) 1))
+                      ',type))
           (declare (type ,type ,<step>)))
          ((,<v> ,<limit>)
           (values
            ,(if from-p
                 <begin>
               `(+ ,<begin> ,<step>))
-           (if ,<end>
-               ,(if to-p
-                    `(+ ,<end> ,<step>)
-                  <end>)
-             ,<begin>))
+           ,(if to-p
+                `(+ ,<end> ,<step>)
+              <end>))
           (declare (type ,type ,<v> ,<limit>))))
-       `(if ,<end>
-            (if (> ,<step> 0)
-                (< ,<v> ,<limit>)
-              (> ,<v> ,<limit>))
-          t)
+       `(if (> ,<step> 0)
+            (< ,<v> ,<limit>)
+          (> ,<v> ,<limit>))
+       `(prog1 ,<v>
+          (incf ,<v> ,<step>))))))
+
+(defun literal-type-unbounded-range-optimizer (begin step step-literal step-p type from-p)
+  ;; There is a literal type which can be used, and the step may be
+  ;; literal.  There is no bound, which makes things significantly simpler.
+  (if step-literal
+      ;; This is the nice case
+      (let ((step (coerce step type)))
+        (with-names (<begin> <v>)
+          (values
+           t
+           `(((,<begin>)
+              ,begin
+              (declare (type ,type ,<begin>)))
+             ((,<v>)
+              ,(if from-p
+                    <begin>
+                 `(+ ,<begin> ,step)))
+              (declare (type ,type ,<v>)))
+           't
+           `(prog1 ,<v>
+              (incf ,<v> ,step)))))
+    ;; Step is not literal
+    (with-names (<v> <step>)
+      (values
+       t
+       `(((,<step>)
+          (coerce ,(if step-p step 1) ',type)
+          (declare (type ,type ,<step>)))
+       `(((,<v>)
+          ,(if from-p
+               ,begin
+             `(+ ,begin ,<step>)))
+          (declare (type ,type ,<v>))))
+       't
        `(prog1 ,<v>
           (incf ,<v> ,<step>))))))
 

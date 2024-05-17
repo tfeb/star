@@ -407,7 +407,7 @@ These two iterators do not have optimizers: without writing a code walker it's h
 ### Ranges of reals: `in-range`
 This iterates over ranges of reals.  It *may or may not* be correct and probably is not final at present.  It has a simple form and a hairy form.
 
-**The simple form** is `(in-range r)` where `r` is a real: this iterates from zero up to or down to `r`, if `r` is negative.
+**The simple form** `(in-range r)` where `r` is a real iterates from zero up to or down to `r`, if `r` is negative; `(in-range)` iterates over the natural numbers (where the natural numbers include zero).
 
 **The hairy form** is `(in-range &key from after to before by type)`.
 
@@ -416,14 +416,13 @@ Exactly one of `from` and `after` must be given:
 - if `from` is given this is where the iteration starts;
 - if `after` is given it starts at `(+ from by)`.
 
-Exactly one of `to` and `before` must be given:
+At most one of `to` and `before` must be given:
 
 - if `to` is given the iteration may reach this value but will not exceed it;
-- if `before` is given the iteration stops before this value.
+- if `before` is given the iteration stops before this value;
+- if neither is given the iteration is unbounded.
 
-If given their value can either be a real number or `*`, meaning 'go on for ever'.
-
-`by` is the step.  It is defaulted from the start (`from` or `after`) and end (`to` or `before`) limits: if the end is above or equal to the start it defaults to 1, and if it is below it it defaults to -1.  If the end is `*` then it defaults to 1.  The defaults are all coerced to the appropriate type.
+`by` is the step.  It is defaulted from the start (`from` or `after`) and end (`to` or `before`) limits: if the end is above or equal to the start it defaults to 1, and if it is below it it defaults to -1.  If the iteration is unbounded it defaults to 1.  The defaults are all coerced to the appropriate type.
 
 `type` is the type.
 
@@ -443,8 +442,8 @@ The second rule means that the first return from `(range :from 0 :before 10.0)` 
 
 **The optimizer.**  The optimizer for `in-range` is pretty hairy: it's almost half of all the iterator code.  It's also just gory, and may well be buggy.  The times when it should be able to produce good code are:
 
-- when all the numerical values are literal numbers or `*`;
-- when a literal type is given which is to the implementation.
+- when all the numerical values are literal numbers;
+- when a literal type is given which is friendly to the implementation.
 
 ### Meta iterators
 These are iterators which iterate over things like other iterators, or functions.

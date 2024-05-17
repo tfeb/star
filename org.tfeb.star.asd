@@ -48,4 +48,6 @@
   :serial t
   :components
   ((:file "pkg")
-   (:file "simple")))
+   (:file "preamble")
+   (:file "simple")
+   (:file "collecting")))
