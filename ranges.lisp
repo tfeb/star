@@ -60,12 +60,20 @@
                     (setf wideness
                           (max wideness
                                (etypecase ,v
-                                 ,@(let ((i 0))
-                                     (collecting
-                                       (for ((ft (in-list distinct-float-types))
-                                             (j (sequentially (incf i))))
-                                         (collect `(,ft ,j)))))))))))
-      (dolist (n numbers wideness)
+                                 ,@(collecting
+                                     (for ((ft (in-list distinct-float-types))
+                                           (j (stepping (i :initially 1
+                                                           :then (1+ i)))))
+                                         (collect `(,ft ,j)))))))))
+               (lookup ()
+                 `(ecase wideness
+                    (0 nil)
+                    ,@(collecting
+                        (for ((ft (in-list distinct-float-types))
+                              (j (stepping (i :initially 1
+                                              :then (1+ i)))))
+                            (collect `(, j ',ft)))))))
+      (dolist (n numbers (lookup))
         (bump n)))))
 
 (defun in-range (&rest arg/s)
