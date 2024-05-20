@@ -48,27 +48,25 @@
 
 (defun widest-float-type (&rest numbers)
   ;; Return the name of the widest float type among NUMBERS, NIL if
-  ;; there are no floats.
-  (declare (dynamic-extent numbers))
-  (let ((wideness 0)
-        (indexed (load-time-value (iterate next ((types distinct-float-types)
-                                                 (index 1)
-                                                 (indexed '()))
-                                    (if (null types)
-                                        (nreverse indexed)
-                                      (next (rest types)
-                                            (+ index 1)
-                                            (acons (first types) index indexed)))))))
-    (dolist (type (mapcar #'type-of numbers)
-                  (car (rassoc wideness indexed)))
-      (when (subtypep type 'float)
-        (let ((r (assoc (etypecase type
-                          (symbol type)
-                          (cons (first type)))
-                        indexed)))
-          (when (null r)
-            (catastrophe "unknown float type ~S" type))
-          (setf wideness (max wideness (cdr r))))))))
+  ;; there are no floats.  This is called in code written by
+  ;; optimizers expansions so it wants to be quick: hence all this
+  ;; silly hair.
+  (declare (dynamic-extent numbers)
+           (optimize speed))
+  (let ((wideness 0))
+    (declare (type fixnum wideness))
+    (macrolet ((bump (v)
+                 `(when (typep ,v 'float)
+                    (setf wideness
+                          (max wideness
+                               (etypecase ,v
+                                 ,@(let ((i 0))
+                                     (collecting
+                                       (for ((ft (in-list distinct-float-types))
+                                             (j (sequentially (incf i))))
+                                         (collect `(,ft ,j)))))))))))
+      (dolist (n numbers wideness)
+        (bump n)))))
 
 (defun in-range (&rest arg/s)
   ;; This is probably wrong and certainly needs an optimizer (which is
@@ -526,13 +524,13 @@ See the manual.  Optimizable."
                              (typep ,<e> ',type)
                              (typep ,<s> ',type))
                   (star-error "begin ~S, end ~S and step ~S are not all of type ~S"
-                              ,<b> ,<e> ,<s> ',type)
-                  (let ((ft (widest-float-type ,<b> ,<e> ,<s>)))
-                    (if ft
-                        (values (coerce ,<b> ft)
-                                (coerce ,<e> ft)
-                                (coerce ,<s> ft))
-                      (values ,<b> ,<e> ,<s>)))))))
+                              ,<b> ,<e> ,<s> ',type))
+                (let ((ft (widest-float-type ,<b> ,<e> ,<s>)))
+                  (if ft
+                      (values (coerce ,<b> ft)
+                              (coerce ,<e> ft)
+                              (coerce ,<s> ft))
+                    (values ,<b> ,<e> ,<s>))))))
           (declare (type ,type ,<begin> ,<end> ,<step>)))
          ((,<v> ,<limit>)
           (values
@@ -628,11 +626,11 @@ See the manual.  Optimizable."
                 (unless (and (typep ,<b> ',type)
                              (typep ,<s> ',type))
                   (star-error "begin ~S and step ~S are not both of type ~S"
-                              ,<b> ,<s> ',type)
-                  (let ((ft (widest-float-type ,<b> ,<s>)))
-                    (if ft
-                        (values (coerce ,<b> ft) (coerce ,<s> ft))
-                      (values ,<b> ,<s>)))))))
+                              ,<b> ,<s> ',type))
+                (let ((ft (widest-float-type ,<b> ,<s>)))
+                  (if ft
+                      (values (coerce ,<b> ft) (coerce ,<s> ft))
+                    (values ,<b> ,<s>))))))
           (declare (type ,type ,<begin> ,<step>)))
          ((,<v>)
           ,(if from-p <begin> `(+ ,<begin> ,<step>))
@@ -643,7 +641,7 @@ See the manual.  Optimizable."
    (t
     ;; no step: perhaps this should make the effective step be the
     ;; right float type.
-    (let ((es (coerce 1 'type)))
+    (let ((es (coerce 1 type)))
       (with-names (<b> <v>)
         (values
          t
