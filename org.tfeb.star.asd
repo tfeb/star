@@ -29,11 +29,20 @@
   :author "Tim Bradshaw"
   :license "MIT"
   :homepage "https://github.com/tfeb/star"
-  :depends-on ("org.tfeb.star" "parachute")
+  :depends-on ("org.tfeb.hax.collecting"
+               "org.tfeb.hax.iterate"
+               "org.tfeb.hax.utilities"
+               "org.tfeb.dsm"
+               "org.tfeb.star"
+               "parachute")
   :pathname "test/"
   :serial t
   :components
-  ((:file "pkg")))
+  ((:file "pkg")
+   (:file "preamble")
+   (:file "test-sanity")
+   (:file "test-ranges")
+   (:file "test-all")))
 
 (defsystem "org.tfeb.star/bench"
   :description "Štar benchmarks"

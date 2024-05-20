@@ -1,4 +1,4 @@
-;;;; Test collecting vs loop / collect
+;;;; Štar collecting benchmarks
 ;;;
 
 (in-package :org.tfeb.star/bench)
@@ -28,5 +28,45 @@
     (for (for-collecting n m))
     (loop (loop-collect n m))))
 
+(defun loop-summing (n m)
+  (declare (type fixnum n m)
+           (optimize speed))
+  (loop repeat n
+        summing (loop repeat m
+                       summing 1 fixnum)
+          fixnum))
+
+(defun for-summing (n m)
+  (declare (type fixnum n m)
+           (optimize speed))
+  (with-accumulators ((r + :initially 0 :type fixnum))
+    (for ((_ (in-range :from 0 :before n :by 1 :type 'fixnum)))
+      (r
+       (with-accumulators ((s + :initially 0 :type fixnum))
+         (for ((_ (in-range :from 0 :before m :by 1 :type 'fixnum)))
+           (s 1)))))))
+
+(defun dotimes-summing (n m)
+  (declare (type fixnum n m)
+           (optimize speed))
+    (with-accumulators ((r + :initially 0 :type fixnum))
+      (dotimes (i n)
+        (declare (type fixnum i)
+                 (ignorable i))
+        (r
+         (with-accumulators ((s + :initially 0 :type fixnum))
+                 (dotimes (j m)
+                   (declare (type fixnum j)
+                            (ignorable j))
+                   (s 1)))))))
+
+(defun bench-summing (n m)
+  (declare (type fixnum n m))
+  (reporting-times (("** Summing: ~D iterations of ~D iterations" n m))
+    (for (for-summing n m))
+    (loop (loop-summing n m))
+    (dotimes (dotimes-summing n m))))
+
 (define-benchmark collecting ("Collecting")
-  (bench-collecting 10000 100000))
+  (bench-collecting 10000 100000)
+  (bench-summing 100000 100000))

@@ -1,4 +1,4 @@
-;;;; Štar benchmarks
+;;;; Štar benchmarks, preamble
 ;;;
 
 (in-package :org.tfeb.star/bench)

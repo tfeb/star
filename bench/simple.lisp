@@ -82,7 +82,7 @@
       (declare (type fixnum i))
       (dotimes (j n)
         (declare (type fixnum j))
-        (setf m (max m i j))))
+        (setf m (max i j m))))
     m))
 
 (defun bench-range (n)

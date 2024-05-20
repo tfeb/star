@@ -1,5 +1,7 @@
 ;;;; Packages for Štar
 ;;;
+;;; Packages with docstrings are public
+;;;
 
 #+org.tfeb.tools.require-module
 (org.tfeb.tools.require-module:needs
@@ -15,18 +17,39 @@
 
 (in-package :org.tfeb.star/pkg)
 
+(define-package :org.tfeb.star/utilities
+  (:Documentation "Utilities for Štar")
+  (:use)
+  (:export
+   #:star-error
+   #:star-note
+   #:reporting-star-notes))
+
+(define-package :org.tfeb.star/iterator-optimizer-protocol
+  (:documentation "Štar iterator optimizer protocol")
+  (:nicknames :org.tfeb.star/iop)
+  (:use)
+  (:export
+   ;; Iterator protocol
+   #:make-iterator-optimizer-table
+   #:*iterator-optimizers*
+   #:*enable-iterator-optimizers*
+   #:define-iterator-optimizer
+   #:get-iterator-optimizer
+   #:map-iterator-optimizer-table
+   #:remove-iterator-optimizer
+   #:find-iterator-optimizer))
+
 (define-package :org.tfeb.star/common
   ;; Common things between impl and iterators, conditions &c
   (:use :cl)
   (:use :org.tfeb.hax.utilities)
+  (:use :org.tfeb.star/utilities)
   (:export
    #:*builtin-iterator-optimizer-table*
    #:*star-bootstrap*
-   #:star-error
    #:syntax-error
    #:catastrophe
-   #:star-note
-   #:reporting-star-notes
    #:note))
 
 (define-package :org.tfeb.star/impl
@@ -38,24 +61,11 @@
    :org.tfeb.hax.collecting
    :org.tfeb.hax.iterate)
   (:use
-   :org.tfeb.star/common)
+   :org.tfeb.star/utilities
+   :org.tfeb.star/common
+   :org.tfeb.star/iop)
   (:export
-   ;; Common things
-   #:star-error
-   #:star-note
-   #:reporting-star-notes)
-  (:export
-   ;; Iterator protocol
-   #:make-iterator-optimizer-table
-   #:*iterator-optimizers*
-   #:*enable-iterator-optimizers*
-   #:define-iterator-optimizer
-   #:get-iterator-optimizer
-   #:map-iterator-optimizer-table
-   #:remove-iterator-optimizer
-   #:find-iterator-optimizer)
-  (:export
-   ;; Štar
+   ;; Štar.  FINAL and FINAL* should not exist.
    #:for
    #:for*
    #:next
@@ -64,16 +74,18 @@
    #:final*))
 
 (define-package :org.tfeb.star/iterators
-  ;; Iterators
+  (:documentation "Štar predefined iterators")
   (:use :cl)
   (:use
-   :org.tfeb.star/impl
    :org.tfeb.hax.utilities
    :org.tfeb.dsm
    :org.tfeb.hax.collecting
    :org.tfeb.hax.iterate)
   (:use
-   :org.tfeb.star/common)
+   :org.tfeb.star/utilities
+   :org.tfeb.star/common
+   :org.tfeb.star/iop
+   :org.tfeb.star/impl)
   (:export
    ;; Builtin iterators
    #:in-sequence
@@ -94,14 +106,16 @@
    #:in-range))
 
 (define-package :org.tfeb.star
-  ;; The whole thing
+  (:documentation "Štar, including iterators and iterator protocol")
   (:use)
   (:extends
+   :org.tfeb.star/utilities
    :org.tfeb.star/impl
+   :org.tfeb.star/iop
    :org.tfeb.star/iterators))
 
 (define-package :org.tfeb.*
-  ;; Pure
+  (:documentation "Štar: just itself")
   (:use)
   (:extends
    :org.tfeb.star/impl))

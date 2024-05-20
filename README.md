@@ -82,7 +82,25 @@ That's all there is to writing iterators.  Note it's perfectly possible to const
 
 Iterators require two function calls per step.  To make them fast you can define *iterator optimizers* for named iterators, which return values which allow the system to do much better than this.  These are described below.
 
+Note that, for Štar, *everything* is an iterator: there is no special syntax.  So any form
+
+```lisp
+(for ((<var/s> <iterator>))
+  ...)
+```
+
+can be freely replaced by
+
+```lisp
+(multiple-value-bind (v c) <iterator>
+  (for ((<var/s> (values v c)))
+    ...)
+```
+
+with no cost other than performance.
+
 ## The iteration constructs: `for` and `for*`
+These are exported by `org.tfeb.*` and `org.tfeb.star`.
 ## Parallel iteration: `for`
 `for` iterates over zero or more iterators.  The syntax is
 
@@ -194,6 +212,8 @@ Now you get the index as well as the character:
 Both `for` and `for*` return `nil` unless values are returned by `final` or `final*`.
 
 ## Iterator optimizers
+The protocol described here is exported by `org.tfeb.star/iop` and `org.tfeb.star`.
+
 Iterator optimizers are functions which tell Štar how to essentially inline iterators.   They are attached to iterators which are named functions.  They are looked up at macroexpansion time in a stack of tables: this is usually just two, with a user table and a builtin table underneath it which is protected, but you can push and pop other entries, which might be useful, for instance, when compiling code where you can make specific assumptions about types which are not generally true.
 
 Because iterator optimizers work on names, they suffer from the unavoidable 'upward macro hygiene' problem that most CL macros suffer from[^2].  Here is an example of an upward macro hygiene problem in štar:
@@ -314,10 +334,13 @@ This is the normal way to define iterator optimizers.  The first argument is eit
 
 Note that `define-iterator-optimizer` does *not* wrap its expansion in an `eval-when`: this is intentional, because iterator optimizers should not be defined before their iterators are, ie not before load time.
 
-## Errors
+## Some useful things
+These sre exported by `org.tfeb.star/utilities` and `org.tfeb.star`.
+
+### Errors
 Any error that Štar thinks is your fault will be a condition inheriting from the `star-error` condition type.  Errors that it thinks are bugs will *not* inherit from this type.
 
-## Compilation notes
+### Compilation notes
 Štar, and particularly iterator optimizers, can report various notes which might be helpful.  These are done by signalling `star-note`, which is a condition type which is a subtype of `simple-condition`.
 
 **`reporting-star-notes`** is a macro which will report star notes to a specified stream, by default `*debug-io*`.  You want to wrap this around a compilation which is when notes are reported:
@@ -330,11 +353,19 @@ Any error that Štar thinks is your fault will be a condition inheriting from th
 for instance.
 
 ## Packages
-**`org.tfeb.star`** contains everything, including the predefined iterators.  **`org.tfeb.*`** contains only Štar itself.
+The system is structured so that you can pick and choose which bits you want, starting from something extremely minimal.
+
+- **`org.tfeb*`** is Štar itself: just `for`, `for*`, `next`, `next*`, `final` and `final*`.
+- **`org.tfeb.star/iterator-optimizer-protocol`** *aka* `org.tfeb.star/iop` is the iterator optimizer protocol.
+- **`org.tfeb.star/iterators`** is the predefined iteratora.
+- **`org.tfeb.star/utilities`** is the names of conditions and `reporting-star-notes`.
+- **`org.tfeb.star`** combines the above four packages.
 
 ---
 
 ## Predefined iterators
+All of these are exported by `org.tfeb.star/iterators` and `org.tfeb.star`.
+
 These are in a *much* more rudimentary state than Štar itself: many were written before it was finished, as proofs of concept, or both.  The list below may change significantly.
 
 ### List iteration: `in-list`, `on-list`

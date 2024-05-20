@@ -9,6 +9,8 @@
 ;;; This is by far the most complicated case (and it's the most
 ;;; complicated case I ever want to deal with)
 ;;;
+;;; I hate this code
+;;;
 
 #+org.tfeb.tools.require-module
 (org.tfeb.tools.require-module:needs
@@ -134,7 +136,7 @@ See the manual.  Optimizable."
             ;; Some things are floats, make everything be
             (values (coerce start widest-float-type)
                     (if limit (coerce limit widest-float-type) nil)
-                    (coerce start widest-float-type))
+                    (coerce by widest-float-type))
           (values start limit by))
       ;; Check things are compatible with the given type
       (assert (and (typep start type)
@@ -151,8 +153,7 @@ See the manual.  Optimizable."
 (defun in-simple-range (start limit by)
   ;; This is now very simple-minded: the optimizer will do the things
   ;; that need to be done.
-  (let ((v start)
-        (by by))
+  (let ((v start))
     (values
      (if (not limit)
          (constantly t)
@@ -239,7 +240,7 @@ See the manual.  Optimizable."
                                               (before nil)
                                               (to nil to-p)
                                               (by nil by-p)
-                                              (type 'real type-p))
+                                              (type '(quote real) type-p))
   ;; The range is bounded
   (declare (ignore environment))        ;a cleverer version might use this
   ;; We want to optimize the cases where the type is a literal, and
@@ -256,34 +257,28 @@ See the manual.  Optimizable."
                                                                        by by-p)
         (when (and step-literal (not (realp step)))
           (star-error "given step ~S which is not a real" step))
-        (cond
-         ((and begin-literal end-literal step-literal)
-          ;; literal bounds
-          (literal-values-range-optimizer (if from-p begin (+ begin step))
-                                          (cond
-                                           (to-p
-                                            (+ end step))
-                                           (t
-                                            end))
-                                          step type type-p))
-         (type-p
-          ;; user-given type
+        (if (and begin-literal end-literal step-literal)
+            ;; literal bounds
+            (literal-values-range-optimizer (if from-p begin (+ begin step))
+                                            (cond
+                                             (to-p
+                                              (+ end step))
+                                             (t
+                                              end))
+                                            step type type-p)
           (multiple-value-bind (type type-literal) (literal type)
             (if type-literal
                 ;; We can use the declared type
                 (literal-type-bounded-range-optimizer
-                 begin end step step-literal by-p type from-p to-p)
+                 begin end step by-p type from-p to-p)
               ;; give up & reject it
-              (note "giving up on a range with no literal type"))))
-         (t
-          ;; No user-given type at all: just reject it
-          (note "giving up on a range with no type information at all")))))))
+              (note "giving up on a range with no literal type"))))))))
 
 (defun in-hairy-unbounded-range-optimizer (&key environment
                                                 (from nil from-p)
                                                 (after nil)
                                                 (by nil by-p)
-                                                (type 'real type-p))
+                                                (type '(quote real) type-p))
   ;; The range is unbounded: this is similar to the previous case
   (declare (ignore environment))        ;a cleverer version might use this
   ;; We want to optimize the cases where the type is a literal, and
@@ -297,25 +292,19 @@ See the manual.  Optimizable."
                                                                      by by-p)
         (when (and step-literal (not (realp step)))
           (star-error "given step ~S which is not a real" step))
-        (cond
-         ((and begin-literal step-literal)
+        (if (and begin-literal step-literal)
           ;; literal begin and step
           (literal-values-range-optimizer (if from-p begin (+ begin step))
-                                          nil step type type-p))
-         (type-p
-          ;; user-given type
+                                          nil step type type-p)
           (multiple-value-bind (type type-literal) (literal type)
             (if type-literal
                 ;; We can use the declared type
-                (literal-type-unbounded-range-optimizer begin step step-literal by-p type from-p)
+                (literal-type-unbounded-range-optimizer begin step by-p type from-p)
               ;; give up & reject it
-              (note "giving up on a range with no literal type"))))
-         (t
-          ;; No user-given type at all: just reject it
-          (note "giving up on a range with no type information at all"))))))
+              (note "giving up on a range with no literal type")))))))
 
 (defun literal-values-range-optimizer (start limit step type type-p)
-  ;; START STEP are numeric literals, LIMIT is either numeric or NIL
+  ;; START, STEP are numeric literals, LIMIT is either numeric or NIL
   ;; if it is unbounded, so we can infer good types at compile time in
   ;; many cases
   (let* ((bounded limit)
@@ -506,47 +495,94 @@ See the manual.  Optimizable."
                `(prog1 ,<v>
                   (incf ,<v> ,step)))))))))))
 
-(defun literal-type-bounded-range-optimizer (begin end step step-literal step-p type from-p to-p)
+(defun literal-type-bounded-range-optimizer (begin end step step-p type from-p to-p)
   ;; There is a literal type which can be used, and the step may be
-  ;; literal.  The range is bounded so end is never NIL
-  (if step-literal
-      ;; This is the nice case
-      (let ((step (coerce step type)))
-        (with-names (<begin> <end> <v> <limit>)
-          (values
-           t
-           `(((,<begin> ,<end>)
-              (values ,begin ,end)
-              (declare (type ,type ,<begin> ,<end>)))
-             ((,<v> ,<limit>)
-              (values
-               ,(if from-p
-                    <begin>
-                  `(+ ,<begin> ,step))
-               ,(if to-p
-                    `(+ ,<end> ,step)
-                  <end>))
-              (declare (type ,type ,<v> ,<limit>))))
-           (if (>= step 0)
-               `(< ,<v> ,<limit>)
-             `(> ,<v> ,<limit>))
-           `(prog1 ,<v>
-              (incf ,<v> ,step)))))
-    ;; Step is not literal
-    (with-names (<begin> <end> <step> <v> <limit>)
-      (note "a literal step might help")
+  ;; literal.  The range is bounded so end is never NIL.
+  (unless (subtypep type 'real)
+    (star-error "type ~S is not a subtype of REAL" type))
+  (cond
+   (step-p
+    (with-names (<b> <e> <s> <begin> <end> <step> <v> <limit>)
       (values
        t
-       `(((,<begin> ,<end>)
-          (values ,begin ,end)
+       `(((,<b> ,<e> ,<s>)
+          (values ,begin ,end ,step))
+         ((,<begin> ,<end> ,<step>)
+          ,(cond
+            ((subtypep type 'float)
+             `(let ((ft (widest-float-type ,<b> ,<e> ,<s>)))
+                (cond
+                 ((not ft)
+                  (star-error "not floats"))
+                 ((subtypep ft ',type)
+                  ;; We're good
+                  (values (coerce ,<b> ',type) (coerce ,<e> ',type)
+                          (coerce ,<s> ',type)))
+                 (t
+                  (star-error "no floats of type ~S: widest is ~S" ',type ft)))))
+            (t
+             `(progn
+                (unless (and (typep ,<b> ',type)
+                             (typep ,<e> ',type)
+                             (typep ,<s> ',type))
+                  (star-error "begin ~S, end ~S and step ~S are not all of type ~S"
+                              ,<b> ,<e> ,<s> ',type)
+                  (let ((ft (widest-float-type ,<b> ,<e> ,<s>)))
+                    (if ft
+                        (values (coerce ,<b> ft)
+                                (coerce ,<e> ft)
+                                (coerce ,<s> ft))
+                      (values ,<b> ,<e> ,<s>)))))))
+          (declare (type ,type ,<begin> ,<end> ,<step>)))
+         ((,<v> ,<limit>)
+          (values
+           ,(if from-p
+                <begin>
+              `(+ ,<begin> ,<step>))
+           ,(if to-p
+                `(+ ,<end> ,<step>)
+              <end>))
+          (declare (type ,type ,<v> ,<limit>))))
+       `(if (> ,<step> ,(coerce 0 type))
+            (< ,<v> ,<limit>)
+          (> ,<v> ,<limit>))
+       `(prog1 ,<v>
+          (incf ,<v> ,<step>)))))
+   (t
+    ;; no step
+    (with-names (<b> <e> <begin> <end> <step> <v> <limit>)
+      (values
+       t
+       `(((,<b> ,<e>)
+          (values ,begin ,end))
+         ((,<begin> ,<end>)
+          ,(cond
+            ((subtypep type 'float)
+             `(let ((ft (widest-float-type ,<b> ,<e>)))
+                (cond
+                 ((not ft)
+                  (star-error "not floats"))
+                 ((subtypep ft ',type)
+                  ;; We're good
+                  (values (coerce ,<b> ',type) (coerce ,<e> ',type)))
+                 (t
+                  (star-error "no floats of type ~S: widest is ~S" ',type ft)))))
+            (t
+             `(progn
+                (unless (and (typep ,<b> ',type)
+                             (typep ,<e> ',type))
+                  (star-error "begin ~S and end ~S are not both of type ~S"
+                              ,<b> ,<e> ',type))
+                (let ((ft (widest-float-type ,<b> ,<e>)))
+                  (if ft
+                      (values (coerce ,<b> ft)
+                              (coerce ,<e> ft))
+                    (values ,<b> ,<e>))))))
           (declare (type ,type ,<begin> ,<end>)))
          ((,<step>)
-          ,(if step-p
-               `(coerce ,step ',type)
-             `(coerce (case (round (signum (- ,<end> ,<begin>)))
-                        (-1 -1)
-                        ((0 1) 1))
-                      ',type))
+          (if (>= ,<end> ,<begin>)
+              ,(coerce 1 type)
+            ,(coerce -1 type))
           (declare (type ,type ,<step>)))
          ((,<v> ,<limit>)
           (values
@@ -557,46 +593,85 @@ See the manual.  Optimizable."
                 `(+ ,<end> ,<step>)
               <end>))
           (declare (type ,type ,<v> ,<limit>))))
-       `(if (> ,<step> 0)
+       `(if (> ,<step> ,(coerce 0 type))
             (< ,<v> ,<limit>)
           (> ,<v> ,<limit>))
        `(prog1 ,<v>
-          (incf ,<v> ,<step>))))))
+          (incf ,<v> ,<step>)))))))
 
-(defun literal-type-unbounded-range-optimizer (begin step step-literal step-p type from-p)
+(defun literal-type-unbounded-range-optimizer (begin step step-p type from-p)
   ;; There is a literal type which can be used, and the step may be
   ;; literal.  There is no bound, which makes things significantly simpler.
-  (if step-literal
-      ;; This is the nice case
-      (let ((step (coerce step type)))
-        (with-names (<begin> <v>)
-          (values
-           t
-           `(((,<begin>)
-              ,begin
-              (declare (type ,type ,<begin>)))
-             ((,<v>)
-              ,(if from-p
-                    <begin>
-                 `(+ ,<begin> ,step)))
-              (declare (type ,type ,<v>)))
-           't
-           `(prog1 ,<v>
-              (incf ,<v> ,step)))))
-    ;; Step is not literal
-    (with-names (<v> <step>)
+  (unless (subtypep type 'real)
+    (star-error "type ~S is not a subtype of REAL" type))
+  (cond
+   (step-p
+    (with-names (<b> <s> <begin> <v> <step>)
       (values
        t
-       `(((,<step>)
-          (coerce ,(if step-p step 1) ',type)
-          (declare (type ,type ,<step>)))
-       `(((,<v>)
-          ,(if from-p
-               ,begin
-             `(+ ,begin ,<step>)))
+       `(((,<b> ,<s>)
+          (values ,begin ,step))
+         ((,<begin> ,<step>)
+          ,(cond
+            ((subtypep type 'float)
+             `(let ((ft (widest-float-type ,<b> ,<s>)))
+                (cond
+                 ((not ft)
+                  (star-error "not floats"))
+                 ((subtypep ft ',type)
+                  ;; We're good
+                  (values (coerce ,<b> ',type) (coerce ,<s> ',type)))
+                 (t
+                  (star-error "no floats of type ~S: widest is ~S" ',type ft)))))
+            (t
+             `(progn
+                (unless (and (typep ,<b> ',type)
+                             (typep ,<s> ',type))
+                  (star-error "begin ~S and step ~S are not both of type ~S"
+                              ,<b> ,<s> ',type)
+                  (let ((ft (widest-float-type ,<b> ,<s>)))
+                    (if ft
+                        (values (coerce ,<b> ft) (coerce ,<s> ft))
+                      (values ,<b> ,<s>)))))))
+          (declare (type ,type ,<begin> ,<step>)))
+         ((,<v>)
+          ,(if from-p <begin> `(+ ,<begin> ,<step>))
           (declare (type ,type ,<v>))))
        't
        `(prog1 ,<v>
-          (incf ,<v> ,<step>))))))
+          (incf ,<v> ,<step>)))))
+   (t
+    ;; no step: perhaps this should make the effective step be the
+    ;; right float type.
+    (let ((es (coerce 1 'type)))
+      (with-names (<b> <v>)
+        (values
+         t
+         `(((,<b>) ,begin)
+           ((,<v>)
+            (cond
+             ((subtypep type 'float)
+              `(let ((ft (widest-float-type ,<b>)))
+                 (cond
+                  ((not ft)
+                   (star-error "not a float"))
+                  ((subtypep et ',type)
+                   ;; We're good
+                   ,(if from-p
+                        `(coerce ,<v> ',type)
+                      `(+ (coerce ,<v> ',type) ,es)))
+                  (t
+                   (star-error "begin is not a float of type ~S: it is an ~S" ',type et)))))
+             (t
+              `(progn
+                 (unless (typep ,<b> ',type)
+                   (star-error "begin ~S is not of type ~S" ,<b> ',type))
+                 ,(if from-p
+                      <b>
+                    `(+ ,<b> ,es)))))
+            (declare (type ,type ,<v>))))
+         't
+         `(prog1 ,<v>
+            (incf ,<v> ,es))))))))
 
 (setq *star-bootstrap* nil)
