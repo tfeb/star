@@ -8,7 +8,8 @@
 (define-test ("org.tfeb.star.sanity" "repeat")
   (is = 3 (length (collecting
                     (for ((i (repeat 3)))
-                      (collect i))))))
+                      (collect i)))))
+  (fail (for ((_ (repeat 3 :error t))))))
 
 (define-test ("org.tfeb.star.sanity" "pessimizing")
   (let ((r (random 10)))

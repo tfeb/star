@@ -41,6 +41,7 @@
   ((:file "pkg")
    (:file "preamble")
    (:file "test-sanity")
+   (:file "test-iterators")
    (:file "test-ranges")
    (:file "test-all")))
 

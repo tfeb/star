@@ -70,12 +70,17 @@
               ,maybe-wrapped-for-expression))
        ,@forms)))
 
-(defun repeat (n)
-  ;; Used to ensure termination
+(defun repeat (n &key (error nil))
+  ;; Used to ensure termination without using IN-RANGE
   (let ((i 0))
     (values
      (lambda ()
-       (< i n))
+       (cond
+        ((< i n)
+         t)
+        (error
+         (error "hit repeat limit"))
+        (t nil)))
      (lambda ()
        (prog1 i
          (incf i))))))
