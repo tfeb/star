@@ -21,6 +21,20 @@
 
 (setf *star-bootstrap* t)
 
+(define-condition range-type-error (star-error simple-type-error)
+  ())
+
+(declaim (inline ensure-range-type))
+
+(defun ensure-range-type (datum expected-type name)
+  (unless (typep datum expected-type)
+    (error 'range-type-error
+           :datum datum
+           :expected-type expected-type
+           :format-control (format nil "range ~A ~S has type ~S, not ~S"
+                                   name datum (type-of datum) expected-type)
+           :format-arguments nil)))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defconstant distinct-float-types
     ;; the distinct float types for an implementation, thinnest to
@@ -145,15 +159,10 @@ See the manual.  Optimizable."
                     (coerce by widest-float-type))
           (values start limit by))
       ;; Check things are compatible with the given type
-      (assert (and (typep start type)
-                   (typep by type))
-          (start by)
-        "at least one of range start ~S & range step ~S is not a ~S"
-        start by type)
+      (ensure-range-type start type "start")
+      (ensure-range-type by type "step")
       (when limit
-        (assert (typep limit type)
-            (limit)
-          "range limit ~S is not a ~S" limit type))
+        (ensure-range-type limit type "limit"))
       (in-simple-range start limit by))))
 
 (defun in-simple-range (start limit by)
@@ -253,16 +262,16 @@ See the manual.  Optimizable."
   ;; also where the ranges are literals, so we need to work all this
   ;; out.  Other cases we just give up on.
   (multiple-value-bind (begin begin-literal) (literal (if from-p from after))
-    (when (and begin-literal (not (realp begin)))
-      (star-error "given begin ~S which is not a real" begin))
+    (when begin-literal
+      (ensure-range-type begin 'real "begin"))
     (multiple-value-bind (end end-literal) (literal (if to-p to before))
-      (when (and end-literal (not (realp end)))
-        (star-error "given end ~S which not a real" end))
+      (when end-literal
+        (ensure-range-type end 'real "end"))
       (multiple-value-bind (step step-literal) (compute-effective-step begin begin-literal
                                                                        end end-literal
                                                                        by by-p)
-        (when (and step-literal (not (realp step)))
-          (star-error "given step ~S which is not a real" step))
+        (when step-literal
+          (ensure-range-type step 'real "step"))
         (if (and begin-literal end-literal step-literal)
             ;; literal bounds
             (literal-values-range-optimizer (if from-p begin (+ begin step))
@@ -291,13 +300,13 @@ See the manual.  Optimizable."
   ;; also where the ranges are literals, so we need to work all this
   ;; out.  Other cases we just give up on.
   (multiple-value-bind (begin begin-literal) (literal (if from-p from after))
-    (when (and begin-literal (not (realp begin)))
-      (star-error "given begin ~S which is not a real" begin))
+    (when begin-literal
+      (ensure-range-type begin 'real "begin"))
     (multiple-value-bind (step step-literal) (compute-effective-step begin begin-literal
                                                                      nil t
                                                                      by by-p)
-        (when (and step-literal (not (realp step)))
-          (star-error "given step ~S which is not a real" step))
+        (when step-literal
+          (ensure-range-type step 'real "step"))
         (if (and begin-literal step-literal)
           ;; literal begin and step
           (literal-values-range-optimizer (if from-p begin (+ begin step))
@@ -426,11 +435,10 @@ See the manual.  Optimizable."
             ;; User type is literal, we can check and use it now
             (unless (subtypep type 'rational)
               (star-error "given type ~S is not a subtype of RATIONAL" type))
-            (unless (and (typep start type)
-                         (typep step type)
-                         (or (not bounded) (typep limit type)))
-              (star-error "not all of start ~S~@[, limit ~S~] and step ~S are of type ~S"
-                          start limit step type))
+            (ensure-range-type start type "start")
+            (ensure-range-type step type "step")
+            (when bounded
+              (ensure-range-type limit type "limit"))
             (with-names (<v>)
               (values
                t
@@ -453,14 +461,11 @@ See the manual.  Optimizable."
               (values
                t
                `(((,<v>) (let ((type ,type))
-                           (unless (subtype ,type 'rational)
+                           (unless (subtype type 'rational)
                              (star-error "given type ~S is not a subtype of RATIONAL" type))
-                           (unless (and (typep ,start type)
-                                        (typep ,limit type)
-                                        (typep ,step type))
-                             (star-error
-                              "not all of start ~S, limit ~S and step ~S are of type ~S"
-                              ,start ,limit ,step type))
+                           (ensure-range-type ,start type "start")
+                           (ensure-range-type ,limit type "limit")
+                           (ensure-range-type ,step type "step")
                            ,start
                            (declare (type fixnum ,<v>)))))
                (case (round (signum step))
@@ -476,20 +481,13 @@ See the manual.  Optimizable."
               (values
                t
                `(((,<v>) (let ((type ,type))
-                           (unless (subtype ,type 'rational)
+                           (unless (subtype type 'rational)
                              (star-error "given type ~S is not a suntype of RATIONAL" type))
+                           (ensure-range-type ,start type "start")
+                           (ensure-range-type ,step type "step")
                            ,@(if bounded
-                                 `((unless (and (typep ,start type)
-                                                (typep ,limit type)
-                                                (typep ,step type))
-                                     (star-error
-                                      "not all of start ~S, limit ~S and step ~S are of type ~S"
-                                      ,start ,limit ,step type)))
-                               `((unless (and (typep ,start type)
-                                              (typep ,step type))
-                                   (star-error
-                                    "not all of start ~S and step ~S are of type ~S"
-                                    ,start ,limit ,step type))))
+                                 `((ensure-range-type ,limit type "limit"))
+                               '())
                            ,start)))
                (if bounded
                    (case (round (signum step))
@@ -528,11 +526,9 @@ See the manual.  Optimizable."
                   (star-error "no floats of type ~S: widest is ~S" ',type ft)))))
             (t
              `(progn
-                (unless (and (typep ,<b> ',type)
-                             (typep ,<e> ',type)
-                             (typep ,<s> ',type))
-                  (star-error "begin ~S, end ~S and step ~S are not all of type ~S"
-                              ,<b> ,<e> ,<s> ',type))
+                (ensure-range-type ,<b> ',type "begin")
+                (ensure-range-type ,<e> ',type "end")
+                (ensure-range-type ,<s> ',type "step")
                 (let ((ft (widest-float-type ,<b> ,<e> ,<s>)))
                   (if ft
                       (values (coerce ,<b> ft)
@@ -575,10 +571,8 @@ See the manual.  Optimizable."
                   (star-error "no floats of type ~S: widest is ~S" ',type ft)))))
             (t
              `(progn
-                (unless (and (typep ,<b> ',type)
-                             (typep ,<e> ',type))
-                  (star-error "begin ~S and end ~S are not both of type ~S"
-                              ,<b> ,<e> ',type))
+                (ensure-range-type ,<b> ',type "begin")
+                (ensure-range-type ,<e> ',type "end")
                 (let ((ft (widest-float-type ,<b> ,<e>)))
                   (if ft
                       (values (coerce ,<b> ft)
@@ -631,10 +625,8 @@ See the manual.  Optimizable."
                   (star-error "no floats of type ~S: widest is ~S" ',type ft)))))
             (t
              `(progn
-                (unless (and (typep ,<b> ',type)
-                             (typep ,<s> ',type))
-                  (star-error "begin ~S and step ~S are not both of type ~S"
-                              ,<b> ,<s> ',type))
+                (ensure-range-type ,<b> ',type "begin")
+                (ensure-range-type ,<s> ',type "step")
                 (let ((ft (widest-float-type ,<b> ,<s>)))
                   (if ft
                       (values (coerce ,<b> ft) (coerce ,<s> ft))
@@ -670,8 +662,7 @@ See the manual.  Optimizable."
                    (star-error "begin is not a float of type ~S: it is an ~S" ',type et)))))
              (t
               `(progn
-                 (unless (typep ,<b> ',type)
-                   (star-error "begin ~S is not of type ~S" ,<b> ',type))
+                 (ensure-range-type ,<b> ',type "begin")
                  ,(if from-p
                       <b>
                     `(+ ,<b> ,es)))))
