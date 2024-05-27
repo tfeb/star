@@ -12,6 +12,11 @@
   ;; MAYBE-WRAPPED-FOR-EXPRESSION is either a for expression or of the
   ;; form (x ...) where any of the ...'s may be (FOR (...) ...).  This
   ;; is not a code walker!
+  ;;
+  ;; Note: this transformation *doesn't* work for for*: in (for* ((a
+  ;; <f1>) (b <f2>)) ...) you need to evaluate <f2> each time round
+  ;; the outer loop, with a bound, so you can't raise it out of the
+  ;; expression this way for those two reasons.
   (flet ((pessimize (for-expression)
            (destructuring-match for-expression
              ((for (&rest clauses) &body forms)

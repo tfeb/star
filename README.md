@@ -388,6 +388,9 @@ These are in a *much* more rudimentary state than Štar itself: many were writte
 ### Hash tables: `in-hash-table`
 This iterates two values, the key and value of the table.  See above for something very close to the real implementation.
 
+### Packages: `in-package-symbols`
+This iterates two values: symbol and package.  It takes three keyword arguments:  `internal`, `inherited` and `external`, which have the same semantics as `with-package-iterator`.  All are true by default which gives the same semantics as `do-package`.
+
 ### Two general iterators: `stepping` and `stepping*`
 `stepping` and `stepping*` are a pair of iterators which make and step bindings.  They take a number of clauses which look like `(var &key initially then type value while until)`.
 

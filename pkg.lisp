@@ -93,6 +93,7 @@
    #:on-list
    #:in-vector
    #:in-hash-table
+   #:in-package-symbols
    #:stepping
    #:sequentially-calling
    #:sequentially

@@ -192,7 +192,7 @@ Optimizable."
        (multiple-value-bind (simple simple-literal) (literal simple)
          (when (and simple-literal simple element-type-literal (not (eql element-type t)))
            (warn "ignoring element-type for simple array"))
-         (cond 
+         (cond
           ((and simple-literal simple)
            (with-names (<v> <l> <i>)
              (values
@@ -270,6 +270,77 @@ Optimizable."
            (multiple-value-setq (,<hash-valid> ,<hash-key> ,<hash-value>) (,<hash-iterator>)))
         (lambda (form)
           `(with-hash-table-iterator (,<hash-iterator> ,h) ,form)))))
+    (otherwise
+     nil)))
+
+(defun in-package-symbols (package/s &key (internal t) (external t) (inherited t))
+  "Iterate the symbols of a package or packages
+
+This iterates two values: symbol and package
+
+INTERNAL, EXTERNAL and INHERITED are as WITH-PACKAGE-ITERATOR.  By
+default all three are true, which gives the behaviour of DO-SYMBOLS."
+  (let ((psl
+         (collecting
+          (for ((pd (in-list (if (listp package/s) package/s (list package/s)))))
+            (let ((p (find-package pd)))
+              (unless p
+                (error "no package ~S" pd))
+              (let ((symbols
+                     (collecting
+                       (do-symbols (s p)
+                         (multiple-value-bind (ss status) (find-symbol (symbol-name s) p)
+                           (ecase status
+                             (:internal
+                              (when internal (collect ss)))
+                             (:external
+                              (when external (collect ss)))
+                             (:inherited
+                              (when inherited (collect ss)))))))))
+                (unless (null symbols)  ;never collect an empty list of synbols
+                  (collect (cons p symbols))))))))
+        (cp nil)
+        (csl nil))
+    (values
+     (lambda ()
+       (not (and (null csl) (null psl))))
+     (lambda ()
+       (when (null csl)
+         (destructuring-bind ((np . nsl) . msl) psl
+           (setf cp np
+                 csl nsl
+                 psl msl)))
+       (values (pop csl) cp)))))
+
+(define-iterator-optimizer (in-package-symbols *builtin-iterator-optimizer-table*) (form)
+  ;; WITH-PACKAGE-ITERATOR is really poorly designed, sadly: you can't
+  ;; tell it the times you want a symbol dynamically.  So the
+  ;; optimizer works by selecting all symbols and filtering them.
+  ;; Whether it's worth having an optimizer at all is not clear
+  (destructuring-match form
+    ((_ p &key (internal 't) (external 't) (inherited 't))
+     (with-names (<when> <pi> <s> <p>)
+       (values
+        t
+        `(((,<when> ,<s> ,<p>)
+           (values (let ((when '()))
+                     (when ,inherited (push ':inherited when))
+                     (when ,external (push ':external when))
+                     (when ,internal (push ':internal when))
+                     when)
+                   nil nil)))
+        `(for (((found symbol accessibility package) (sequentially* (,<pi>))))
+           (cond
+            ((not found)
+             (final nil))
+            ((member accessibility ,<when>)
+             (setf ,<s> symbol
+                   ,<p> package)
+             (final t))))
+        `(values ,<s> ,<p>)
+        (lambda (form)
+          `(with-package-iterator (,<pi> ,p :internal :external :inherited)
+             ,form)))))
     (otherwise
      nil)))
 

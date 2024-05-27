@@ -400,7 +400,7 @@ See the manual"
                  (with-collectors (variable declaration)
                    (dolist (var (clause-vars clause))
                      (let ((variable (if (var-anonymous-p var)
-                                         (make-symbol (var-name var))
+                                         (make-symbol (symbol-name (var-name var)))
                                        (var-name var))))
                        (variable variable)
                        (if (var-anonymous-p var)

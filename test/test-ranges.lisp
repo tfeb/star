@@ -86,10 +86,10 @@
       (for ((form (in-list
                    (collecting
                      (collect '(n))
-                     (for ((s (in-list '(:from :after)))
-                           (e (in-list '(:before :to)))
-                           (by (in-list '(() (:by s))))
-                           (type (in-list '(() (:type 'fixnum)))))
+                     (for* ((s (in-list '(:from :after)))
+                            (e (in-list '(:before :to)))
+                            (by (in-list '(() (:by s))))
+                            (type (in-list '(() (:type 'fixnum)))))
                        (collect `(in-range ,s s ,e e ,@by ,@type)))))))
         (true (funcall iro form nil)))
       ;; Unbounded non-literals. Type is implicitly literal REAL or
@@ -97,9 +97,9 @@
       (for ((form (in-list
                    (collecting
                      (collect '(n))
-                     (for ((s (in-list '(:from :after)))
-                           (by (in-list '(() (:by s))))
-                           (type (in-list '(() (:type 'fixnum)))))
+                     (for* ((s (in-list '(:from :after)))
+                            (by (in-list '(() (:by s))))
+                            (type (in-list '(() (:type 'fixnum)))))
                        (collect `(in-range ,s s ,@by ,@type)))))))
         (true (funcall iro form nil)))
       ;; Type is not a literal, this will fail
