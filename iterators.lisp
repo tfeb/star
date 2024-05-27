@@ -273,34 +273,35 @@ Optimizable."
     (otherwise
      nil)))
 
-(defun in-package-symbols (package/s &key (internal t) (external t) (inherited t))
+(defun in-package-symbols (package/s &key (when '(:internal :external :inherited)))
   "Iterate the symbols of a package or packages
 
 This iterates two values: symbol and package
 
-INTERNAL, EXTERNAL and INHERITED are as WITH-PACKAGE-ITERATOR.  By
-default all three are true, which gives the behaviour of DO-SYMBOLS."
-  (let ((psl
-         (collecting
-          (for ((pd (in-list (if (listp package/s) package/s (list package/s)))))
-            (let ((p (find-package pd)))
-              (unless p
-                (error "no package ~S" pd))
-              (let ((symbols
-                     (collecting
-                       (do-symbols (s p)
-                         (multiple-value-bind (ss status) (find-symbol (symbol-name s) p)
-                           (ecase status
-                             (:internal
-                              (when internal (collect ss)))
-                             (:external
-                              (when external (collect ss)))
-                             (:inherited
-                              (when inherited (collect ss)))))))))
-                (unless (null symbols)  ;never collect an empty list of synbols
-                  (collect (cons p symbols))))))))
-        (cp nil)
-        (csl nil))
+WHEN allows you to select symbols, it should be either one of the
+symbols :INTERNAL, :EXTERNAL or :INHERITED or a list of zero or more
+of these symbols.  The default is a list of all three.  If the
+implementation supports other statuses for symbols, they can appear
+here."
+  (let* ((when (etypecase when
+                 (list when)
+                 (symbol (list when))))
+         (psl
+          (collecting
+            (for ((pd (in-list (if (listp package/s) package/s (list package/s)))))
+              (let ((p (find-package pd)))
+                (unless p
+                  (error "no package ~S" pd))
+                (let ((symbols
+                       (collecting
+                         (do-symbols (s p)
+                           (multiple-value-bind (ss status) (find-symbol (symbol-name s) p)
+                             (when (member status when)
+                               (collect ss)))))))
+                  (unless (null symbols)  ;never collect an empty list of synbols
+                    (collect (cons p symbols))))))))
+         (cp nil)
+         (csl nil))
     (values
      (lambda ()
        (not (and (null csl) (null psl))))
@@ -318,16 +319,15 @@ default all three are true, which gives the behaviour of DO-SYMBOLS."
   ;; optimizer works by selecting all symbols and filtering them.
   ;; Whether it's worth having an optimizer at all is not clear
   (destructuring-match form
-    ((_ p &key (internal 't) (external 't) (inherited 't))
+    ((_ p &key (when ''(:internal :external :inherited)))
      (with-names (<when> <pi> <s> <p>)
        (values
         t
         `(((,<when> ,<s> ,<p>)
-           (values (let ((when '()))
-                     (when ,inherited (push ':inherited when))
-                     (when ,external (push ':external when))
-                     (when ,internal (push ':internal when))
-                     when)
+           (values (let ((when ,when))
+                     (etypecase when
+                       (list when)
+                       (symbol (list when))))
                    nil nil)))
         `(for (((found symbol accessibility package) (sequentially* (,<pi>))))
            (cond

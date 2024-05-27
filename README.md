@@ -355,9 +355,9 @@ for instance.
 ## Packages
 The system is structured so that you can pick and choose which bits you want, starting from something extremely minimal.
 
-- **`org.tfeb*`** is Štar itself: just `for`, `for*`, `next`, `next*`, `final` and `final*`.
+- **`org.tfeb.*`** is Štar itself: just `for`, `for*`, `next`, `next*`, `final` and `final*`.
 - **`org.tfeb.star/iterator-optimizer-protocol`** *aka* `org.tfeb.star/iop` is the iterator optimizer protocol.
-- **`org.tfeb.star/iterators`** is the predefined iteratora.
+- **`org.tfeb.star/iterators`** is the predefined iterators.
 - **`org.tfeb.star/utilities`** is the names of conditions and `reporting-star-notes`.
 - **`org.tfeb.star`** combines the above four packages.
 
@@ -389,7 +389,7 @@ These are in a *much* more rudimentary state than Štar itself: many were writte
 This iterates two values, the key and value of the table.  See above for something very close to the real implementation.
 
 ### Packages: `in-package-symbols`
-This iterates two values: symbol and package.  It takes three keyword arguments:  `internal`, `inherited` and `external`, which have the same semantics as `with-package-iterator`.  All are true by default which gives the same semantics as `do-package`.
+This iterates two values: symbol and package.  It takes one keyword argument which may either be a symbol which is one of the valid statuses for `find-symbol` when a symbol is found or a list of such symbols.  The default value is the list `(:internal :external :inherited)`.
 
 ### Two general iterators: `stepping` and `stepping*`
 `stepping` and `stepping*` are a pair of iterators which make and step bindings.  They take a number of clauses which look like `(var &key initially then type value while until)`.
