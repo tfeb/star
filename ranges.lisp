@@ -382,7 +382,7 @@ See the manual.  Optimizable."
                       (let ((type ,type))
                         (unless (subtypep ',widest-float-type type)
                           (star-error "given type ~S is incompatible with inferred type ~S"
-                                      type widest-float-type))
+                                      type ',widest-float-type))
                         ,start)
                       (declare (type ,widest-float-type ,<v>))))
                    (if bounded
@@ -461,7 +461,7 @@ See the manual.  Optimizable."
               (values
                t
                `(((,<v>) (let ((type ,type))
-                           (unless (subtype type 'rational)
+                           (unless (subtypep type 'rational)
                              (star-error "given type ~S is not a subtype of RATIONAL" type))
                            (ensure-range-type ,start type "start")
                            (ensure-range-type ,limit type "limit")
@@ -481,7 +481,7 @@ See the manual.  Optimizable."
               (values
                t
                `(((,<v>) (let ((type ,type))
-                           (unless (subtype type 'rational)
+                           (unless (subtypep type 'rational)
                              (star-error "given type ~S is not a suntype of RATIONAL" type))
                            (ensure-range-type ,start type "start")
                            (ensure-range-type ,step type "step")
