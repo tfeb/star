@@ -286,32 +286,26 @@ here."
   (let* ((when (etypecase when
                  (list when)
                  (symbol (list when))))
-         (psl
+         (spl
           (collecting
-            (for ((pd (in-list (if (listp package/s) package/s (list package/s)))))
-              (let ((p (find-package pd)))
-                (unless p
-                  (error "no package ~S" pd))
-                (let ((symbols
-                       (collecting
-                         (do-symbols (s p)
-                           (multiple-value-bind (ss status) (find-symbol (symbol-name s) p)
-                             (when (member status when)
-                               (collect ss)))))))
-                  (unless (null symbols)  ;never collect an empty list of synbols
-                    (collect (cons p symbols))))))))
-         (cp nil)
-         (csl nil))
+            ;; Use WITH-PACKAGE-ITERATOR rather than DO-SYMBOLS in the
+            ;; hope that things come out in the same order
+            (with-package-iterator (pi package/s :internal :external :inherited)
+              ;; This is sequentially* but we can't use it yet.
+              (for (((found symbol status package) (values (constantly t)
+                                                           (lambda () (pi)))))
+                (cond
+                 ((not found)
+                  (final))
+                 ((member status when)
+                  (collect (cons symbol package)))))))))
     (values
      (lambda ()
-       (not (and (null csl) (null psl))))
+       (not (null spl)))
      (lambda ()
-       (when (null csl)
-         (destructuring-bind ((np . nsl) . msl) psl
-           (setf cp np
-                 csl nsl
-                 psl msl)))
-       (values (pop csl) cp)))))
+       (destructuring-bind ((symbol . package) . nspl) spl
+         (setf spl nspl)
+         (values symbol package))))))
 
 (define-iterator-optimizer (in-package-symbols *builtin-iterator-optimizer-table*) (form)
   ;; WITH-PACKAGE-ITERATOR is really poorly designed, sadly: you can't
@@ -420,6 +414,48 @@ See the manual.  Not optimizable."
 
 See the manual.  Not optimizable."
   (expand-stepping clauses t))
+
+(defmacro stepping-values (&whole form
+                                  (&rest vars)
+                                  &body kws
+                                  &key
+                                  (initially `(values ,@(make-list (length vars)
+                                                                   :initial-element 'nil)))
+                                  (then nil thenp)
+                                  (types nil typesp)
+                                  (values `(values ,@vars))
+                                  (while t whilep)
+                                  (until nil untilp))
+  "Iterator which steps multiple values
+
+See the manual.  Not optimizable."
+  ;; Arguably this would be nicer if it was (stepping-values ...
+  ;; (:initially ...) ...), but as it is it is as compatible with a
+  ;; STEPPING clause as it can be.
+  (declare (ignore kws))
+  (unless (every #'symbolp vars)
+    (syntax-error form "variables specification is not a list of symbols"))
+      `(multiple-value-bind ,vars ,initially
+         ,@(if typesp
+               `((declare ,@(mapcar (lambda (type var)
+                              `(type ,type ,var))
+                            types vars)))
+             '())
+         (values
+          ,(cond
+            ((and whilep untilp)
+             `(lambda () (and ,while (not ,until))))
+            (whilep
+             `(lambda () ,while))
+            (untilp
+             `(lambda () (not ,until)))
+            (t
+             '(constantly t)))
+          ,(if thenp
+               `(lambda ()
+                  (multiple-value-prog1 ,values
+                    (multiple-value-setq ,vars ,then)))
+             `(lambda () ,values)))))
 
 ;;;; Some more interesting iterators
 ;;;

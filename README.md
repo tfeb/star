@@ -99,6 +99,9 @@ can be freely replaced by
 
 with no cost other than performance.
 
+## Restrictions on iterator functions
+It is not specified which of the two functions steps the iterator.  So for an iterator *i* returning functions *v* and *c* you must call *v*, once, and only if it returns true you may then call *c*, once.  You may not call either *v* or *c* more than once without calling the other, and you may not call *c* unless an immediately preceeding call to *v* has returned true.
+
 ## The iteration constructs: `for` and `for*`
 These are exported by `org.tfeb.*` and `org.tfeb.star`.
 ## Parallel iteration: `for`
@@ -388,10 +391,29 @@ These are in a *much* more rudimentary state than Štar itself: many were writte
 ### Hash tables: `in-hash-table`
 This iterates two values, the key and value of the table.  See above for something very close to the real implementation.
 
+Note that because there is no promise about the order in which things are returned by the underlying functions, `in-hash-table` can return things in any order.  In particular this means that
+
+```lisp
+(for (((k v) (in-hash-table table)))
+  ...)
+```
+
+and
+
+```lisp
+(multiple-value-bind (c v) (in-hash-table table)
+  (for (((k v) (values c v)))
+    ...))
+```
+
+may iterate in different orders, and the order is in any case underfined.
+
 ### Packages: `in-package-symbols`
 This iterates two values: symbol and package.  It takes one keyword argument which may either be a symbol which is one of the valid statuses for `find-symbol` when a symbol is found or a list of such symbols.  The default value is the list `(:internal :external :inherited)`.
 
-### Two general iterators: `stepping` and `stepping*`
+`in-package-symbols` has the same caveats about order as `in-hash-table`.
+
+### Three general iterators: `stepping`, `stepping*` and `stepping-values`
 `stepping` and `stepping*` are a pair of iterators which make and step bindings.  They take a number of clauses which look like `(var &key initially then type value while until)`.
 
 - `var` is a variable name which will be bound.
@@ -436,7 +458,47 @@ a 18 b 19
 nil
 ```
 
-These two iterators do not have optimizers: without writing a code walker it's hard to see how to write one.
+`stepping-values` is conceptually similar to `stepping` but it steps a single set of multiple values.  Its syntax is `(stepping-values vars &key initially then types values while until)`
+
+- `vars` is a list of variables to step.
+- `initially` is a form returning multiple values for them: the default is to bind them all to`nil`.
+- `then` is a form returning new values, the default being not to assign new values.
+- `values` is a form which returns values from the iteration.
+- `types` is a list of types for the variables.
+- `while` and `until` are as in `stepping`.
+
+For example:
+
+```lisp
+(defun catching-up (a b)
+  (stepping-values (small big)
+    :initially (if (> a b) (values b a) (values a b))
+    :types (real real)
+    :then (values (+ small 2) (+ big 1))
+    :while (< small big)))
+```
+
+```lisp
+> (for (((a b) (catching-up 1 5)))
+    (format t "~&~D ~D~%" a b))
+1 5
+3 6
+5 7
+7 8
+nil
+```
+
+Here is an example of `stepping-values` which will somewhat perversely step lists:
+
+```lisp
+(defun stepping-in-list (l)
+  (stepping-values (c v)
+    :initially (in-list l)
+    :while (funcall c)
+    :values (funcall v)))
+```
+
+These three iterators do not have optimizers: without writing a code walker it's hard to see how to write one.
 
 ### Ranges of reals: `in-range`
 This iterates over ranges of reals.  It *may or may not* be correct and probably is not final at present.  It has a simple form and a hairy form.
