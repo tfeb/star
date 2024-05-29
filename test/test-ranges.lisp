@@ -110,9 +110,11 @@
                                (:from 0 :before 10)
                                (:from 0.0 :before 10)
                                (:from 0 :before 10 :by 1.0)))))
+    (format t "~&Trying good ~S~%" good-range)
     (finish (apply #'in-range good-range)))
-  (for ((bad-range (in-list '((:from 0 :before 10 :type 'float)
-                              (:from 0.0 :before 10 :type 'fixnum)))))
+  (for ((bad-range (in-list '((:from 0 :before 10 :type float)
+                              (:from 0.0 :before 10 :type fixnum)))))
+    (format t "~&Trying bad ~S~%" bad-range)
     (fail (apply #'in-range bad-range)))
   ;; Testing types of literal ranges is hard
   (let ((u 10.0))
