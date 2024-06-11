@@ -3,7 +3,7 @@
 This covers the case where you are using Quicklisp, but Štar is not yet in it and/or its dependencies are out of date (both of these things are currently true).  The solution is just to clone the needed repos into QL's `local-projects` directory.  You need:
 
 - [Štar](https://tfeb.github.io/star/) via `git clone https://github.com/tfeb/star.git`;
-- [TFEB.ORG Lisp hax](https://tfeb.github.io/tfeb-lisp-hax/), at least version 8.3.0, via `git clone  https://github.com/tfeb/tfeb-lisp-hax.git`
+- [TFEB.ORG Lisp hax](https://tfeb.github.io/tfeb-lisp-hax/), at least version 8.6.0, via `git clone  https://github.com/tfeb/tfeb-lisp-hax.git`
 - optionally [TFEB.ORG Lisp tools](https://tfeb.github.io/tfeb-lisp-tools/), at least version 9.0.0, via `git clone https://github.com/tfeb/tfeb-lisp-tools.git`;
 
 Given this, `(ql:quickload "org.tfeb.star")` should just work.  The tests system is `"org.tfeb.star/test"`, and the benchmark system is `"org.tfeb.star/bench"`.

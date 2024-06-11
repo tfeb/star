@@ -174,18 +174,18 @@ See the manual.  Optimizable."
          (constantly t)
        (case (round (signum by))
          (-1
-          (lambda ()
+          (thunk
             (> v limit)))
          (0
           (constantly t))
          (1
-          (lambda ()
+          (thunk
             (< v limit)))))
      (case (round (signum by))
        (0
         (constantly v))
        ((-1 1)
-       (lambda ()
+       (thunk
          (prog1 v
            (incf v by))))))))
 

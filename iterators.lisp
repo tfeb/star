@@ -54,12 +54,12 @@ BY is the step, which defaults to #'CDR.
 Optimizable."
   (declare (type list l) (type (function (list) list) by))
   (values
-   (lambda ()
+   (thunk
      (not (endp l)))
    (if (not byp)
-       (lambda ()
+       (thunk
          (pop l))
-     (lambda ()
+     (thunk
        (prog1 (car l)
          (setf l (funcall by l)))))))
 
@@ -109,13 +109,13 @@ BY gets the next tail, defailt #'CDR.
 Optimizable."
   (declare (type list l) (type (function (list) list) by))
   (values
-   (lambda ()
+   (thunk
      (not (endp l)))
    (if (not byp)
-       (lambda ()
+       (thunk
          (prog1 l
            (pop l)))
-     (lambda ()
+     (thunk
        (prog1 l
          (setf l (funcall by l)))))))
 
@@ -174,14 +174,14 @@ Optimizable."
         (i 0))
     (declare (type array-dim l i))
     (values
-     (lambda ()
+     (thunk
        (< i l))
      (if simple
-         (lambda ()
+         (thunk
            (multiple-value-prog1 (values (svref v i) i)
              (incf i)))
-       (lambda ()
-         (lambda ()
+       (thunk
+         (thunk
            (multiple-value-prog1 (values (aref v i) i)
              (incf i))))))))
 
@@ -247,9 +247,9 @@ Optimizable."
                    (value v))
                  h))
     (values
-     (lambda ()
+     (thunk
        (not (null keys)))
-     (lambda ()
+     (thunk
        (multiple-value-prog1
            (values (first keys)
                    (first values))
@@ -293,16 +293,16 @@ here."
             (with-package-iterator (pi package/s :internal :external :inherited)
               ;; This is sequentially* but we can't use it yet.
               (for (((found symbol status package) (values (constantly t)
-                                                           (lambda () (pi)))))
+                                                           (thunk (pi)))))
                 (cond
                  ((not found)
                   (final))
                  ((member status when)
                   (collect (cons symbol package)))))))))
     (values
-     (lambda ()
+     (thunk
        (not (null spl)))
-     (lambda ()
+     (thunk
        (destructuring-bind ((symbol . package) . nspl) spl
          (setf spl nspl)
          (values symbol package))))))
@@ -370,10 +370,10 @@ here."
              (0
               '(constantly t))
              (1
-              `(lambda ()
+              `(thunk
                  ,(first tests)))
              (otherwise
-              `(lambda ()
+              `(thunk
                  (and ,@tests))))
           ,(case (length values)
              (0
@@ -381,25 +381,25 @@ here."
              (1
               (case (length thens)
                 (0
-                 `(lambda () ,(first values)))
+                 `(thunk ,(first values)))
                 (1
-                 `(lambda ()
+                 `(thunk
                     (prog1 ,(first values)
                       (setf ,@assignments))))
                 (otherwise
-                 `(lambda ()
+                 `(thunk
                     (prog1 ,(first values)
                       (,msetf ,@assignments))))))
              (otherwise
               (case (length thens)
                 (0
-                 `(lambda () (values ,@values)))
+                 `(thunk (values ,@values)))
                 (1
-                 `(lambda ()
+                 `(thunk
                     (multiple-value-prog1 (values ,@values)
                       (setf ,@assignments))))
                 (otherwise
-                 `(lambda ()
+                 `(thunk
                     (multiple-value-prog1 (values ,@values)
                       (,msetf ,@assignments))))))))))))
 
@@ -444,18 +444,18 @@ See the manual.  Not optimizable."
          (values
           ,(cond
             ((and whilep untilp)
-             `(lambda () (and ,while (not ,until))))
+             `(thunk (and ,while (not ,until))))
             (whilep
-             `(lambda () ,while))
+             `(thunk ,while))
             (untilp
-             `(lambda () (not ,until)))
+             `(thunk (not ,until)))
             (t
              '(constantly t)))
           ,(if thenp
-               `(lambda ()
+               `(thunk
                   (multiple-value-prog1 ,values
                     (multiple-value-setq ,vars ,then)))
-             `(lambda () ,values)))))
+             `(thunk ,values)))))
 
 ;;;; Some more interesting iterators
 ;;;
@@ -469,9 +469,9 @@ Optimizable."
        (constantly nil)
        (constantly nil))
     (values
-     (lambda ()
+     (thunk
        (not (null functions)))
-     (lambda ()
+     (thunk
        (multiple-value-prog1 (funcall (first functions))
          (setf functions (rest functions)))))))
 
@@ -502,7 +502,7 @@ Optimizable."
 Optimizable."
   `(sequentially-calling
     ,@(mapcar (lambda (form)
-                `(lambda () ,form))
+                `(thunk ,form))
               forms)))
 
 (define-iterator-optimizer  (sequentially *builtin-iterator-optimizer-table*) (form)
@@ -519,7 +519,7 @@ Optimizable."
        (values
         t
         `(((,functions) (list ,@(mapcar (lambda (form)
-                                          `(lambda () ,form))
+                                          `(thunk ,form))
                                         forms))))
         `(not (null ,functions))
         `(multiple-value-prog1 (funcall (first ,functions))
@@ -536,7 +536,7 @@ Optimizable."
     (star-error "need at least one function"))
   (values
    (constantly t)
-   (lambda ()
+   (thunk
      (multiple-value-prog1 (funcall (first functions))
        (when (rest functions)
          (setf functions (rest functions)))))))
@@ -564,7 +564,7 @@ Optimizable."
 Optimizable."
   `(sequentially-calling*
     ,@(mapcar (lambda (form)
-                `(lambda () ,form))
+                `(thunk ,form))
               forms)))
 
 (define-iterator-optimizer  (sequentially* *builtin-iterator-optimizer-table*) (form)
@@ -576,7 +576,7 @@ Optimizable."
        (values
         t
         `(((,functions) (list ,@(mapcar (lambda (form)
-                                          `(lambda () ,form))
+                                          `(thunk ,form))
                                         forms))))
         t
         `(multiple-value-prog1 (funcall (first ,functions))
@@ -597,7 +597,7 @@ Optimizable."
     (let ((ftail functions))
       (values
        (constantly t)
-       (lambda ()
+       (thunk
          (multiple-value-prog1 (funcall (first ftail))
            (setf ftail (or (rest ftail) functions))))))))
 
@@ -630,7 +630,7 @@ Optimizable."
 Optimizable."
   `(cyclically-calling
     ,@(mapcar (lambda (form)
-                `(lambda () ,form))
+                `(thunk ,form))
               forms)))
 
 (define-iterator-optimizer  (cyclically *builtin-iterator-optimizer-table*) (form)
@@ -648,7 +648,7 @@ Optimizable."
        (values
         t
         `(((,functions) (list ,@(mapcar (lambda (form)
-                                          `(lambda () ,form))
+                                          `(thunk ,form))
                                         forms)))
           ((,ftail) ,functions))
         t
@@ -663,7 +663,7 @@ Optimizable."
 
 Optimizable."
   `(in-delayed-iterators ,@(mapcar (lambda (iterator-form)
-                                     `(lambda ()
+                                     `(thunk
                                         ,iterator-form))
                                    iterator-forms)))
 
@@ -712,7 +712,7 @@ Optimizable."
     (multiple-value-bind (valid value) (funcall (first delayed-iterators))
       (let ((more-delayed-iterators (rest delayed-iterators)))
         (values
-         (lambda ()
+         (thunk
            (or
             (funcall valid)
             (iterate next ((itail more-delayed-iterators))
@@ -729,7 +729,7 @@ Optimizable."
                         try)
                        (t
                         (next more))))))))))
-         (lambda ()
+         (thunk
            (funcall value)))))))
 
 (defmacro in-parallel-iterators (&rest iterator-forms)
@@ -737,7 +737,7 @@ Optimizable."
 
 Optimizable."
   `(in-delayed-parallel-iterators ,@(mapcar (lambda (iterator-form)
-                                              `(lambda ()
+                                              `(thunk
                                                  ,iterator-form))
                                             iterator-forms)))
 
@@ -790,9 +790,9 @@ Optimizable."
               (valid v)
               (cursor c))))
       (values
-       (lambda ()
+       (thunk
          (every #'funcall valids))
-       (lambda ()
+       (thunk
          (let ((l (mapcar #'funcall cursors)))
            (declare (dynamic-extent l))
            (values-list l)))))))
