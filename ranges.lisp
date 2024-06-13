@@ -19,7 +19,8 @@
 
 (in-package :org.tfeb.star/iterators)
 
-(setf *star-bootstrap* t)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (setf *star-bootstrap* t))
 
 (define-condition range-type-error (star-error simple-type-error)
   ())
@@ -671,4 +672,5 @@ See the manual.  Optimizable."
          `(prog1 ,<v>
             (incf ,<v> ,es))))))))
 
-(setq *star-bootstrap* nil)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (setf *star-bootstrap* nil))

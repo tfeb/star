@@ -126,9 +126,10 @@ See the manual"
         (otherwise
          (syntax-error name/table "bad name / table")))
     (multiple-value-bind (decls body) (parse-simple-body forms)
-      `(progn
-         ;; Iterator optimizers should not be defined before their
-         ;; iterators, so this mustn't be evaluated at compile time.
+      `(eval-when (:compile-toplevel :load-toplevel :execute)
+         ;; There is a question about whether optimizers should be
+         ;; defined before their functions: previously they were not,
+         ;; now they are.  See the manual.
          (setf (get-iterator-optimizer ',name ,table)
                ,(if env-name-p
                     `(lambda (,form-name ,env-name)

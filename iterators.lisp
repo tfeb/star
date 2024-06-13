@@ -12,7 +12,8 @@
 
 (in-package :org.tfeb.star/iterators)
 
-(setf *star-bootstrap* t)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (setf *star-bootstrap* t))
 
 (defun literal (form)
   ;; If FORM is a literal return its value and T.  Otherwise return
@@ -817,4 +818,5 @@ Optimizable."
         <v>
         nil)))))
 
-(setf *star-bootstrap* nil)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (setf *star-bootstrap* nil))

@@ -100,7 +100,7 @@ can be freely replaced by
 with no cost other than performance.
 
 ## Restrictions on iterator functions
-It is not specified which of the two functions steps the iterator.  So for an iterator *i* returning functions *v* and *c* you must call *v*, once, and only if it returns true you may then call *c*, once.  You may not call either *v* or *c* more than once without calling the other, and you may not call *c* unless an immediately preceeding call to *v* has returned true.
+It is not specified which of the two functions steps the iterator.  So for an iterator *i* returning functions *v* and *c* you must call *v*, once, and only if it returns true you may then call *c*, once.  You may not call either *v* or *c* more than once without calling the other, and you may not call *c* unless an immediately preceeding call to *v* has returned true.  Once *v* has returned false you should not call either *v* or *c* again.
 
 ## The iteration constructs: `for` and `for*`
 These are exported by `org.tfeb.*` and `org.tfeb.star`.
@@ -335,7 +335,22 @@ Finally **`find-iterator-optimizer`**  finds an optimizer in the stack of tables
 ### Defining iterator optimizers: `define-iterator-optimizer`
 This is the normal way to define iterator optimizers.  The first argument is either the name of an optimizer or a list of a name and a table to define it in.  The second argument is an arglist with one or two elements: the first is the name for the form, the second, if given, for the environment.  The rest of the form is a function body.
 
-Note that `define-iterator-optimizer` does *not* wrap its expansion in an `eval-when`: this is intentional, because iterator optimizers should not be defined before their iterators are, ie not before load time.
+There is no completely satisfactor answer as to when iterator optimizers should be defined.  Originally I decided that  `define-iterator-optimizer` should *not* wrap its expansion in an `eval-when`, because iterator optimizers should not be defined before their iterators are, ie not before load time.  However this means that a file which says
+
+```lisp
+(define in-foo (...) ...)
+
+(define-iterator-optimizer in-foo (...) ...)
+
+(defun spot (...)
+  ...
+  (for ((x (in-foo ...)))
+    ...))
+```
+
+will not optimize the iteration.  It would obviously be better if it did.  In particular it's pretty clear that, at least within a file (or compilation unit), compiler macros *are* expanded even though their functions are not yet defined.  Whether they are expanded *after* a file containing a function definition & corresponding compiler macro definition is compiled but before it is loaded is not clear: two of the implementations I tried did so, one did not[^3].
+
+After thinking about this I decided that examples like the above are so common that it is best for iterator optimizers to become defined in the compilation environment, even though this means they are defined before their functions.  So that is now what happens.
 
 ## Some useful things
 These sre exported by `org.tfeb.star/utilities` and `org.tfeb.star`.
@@ -581,3 +596,5 @@ Much of the inspiration for Štar came from my friend Zyni: thanks to her for th
 [^2]:	*Downward macro hygiene* problems happen when a macro binds variables which it should not.  This is avoidable by using gensyms for names.  *Upward macro hygiene* problems happen when a macro makes assumptions that a function or variable is what it thinks it is, and has not been locally rebound above it.  This is not avoidable in CL.  It is almost never a problem (and never a problem for symbols in the `CL` package).
 
 	Upward macro hygiene problems almost never matter: downward ones often do.
+
+[^3]:	I think that *not* doing so is probably closer to correct, but I don't think the standard says.
