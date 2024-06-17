@@ -95,6 +95,7 @@
    #:in-hash-table
    #:in-package-symbols
    #:stepping
+   #:stepping*
    #:stepping-values
    #:sequentially-calling
    #:sequentially

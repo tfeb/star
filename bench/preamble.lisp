@@ -73,14 +73,23 @@
        (push (list ',name ',description thunk) *benchmarks*))
      ',name))
 
-(defun run-benchmarks (&key (names t) (to *standard-output*))
+(defun run-benchmarks (&key (named t) (to *standard-output*)
+                            (print-only nil))
   (let ((*standard-output* to))
     (for ((selected (in-list  (collecting
                               (for ((bm (in-list (reverse *benchmarks*))))
-                                (when (or (eq names t)
-                                          (member (first bm) names))
+                                (when (etypecase named
+                                        (boolean named)
+                                        ((or symbol string)
+                                         (string-equal named (first bm)))
+                                        (cons
+                                         (member (first bm) named
+                                                 :test #'string-equal)))
                                   (collect bm)))))))
     (destructuring-bind (name description thunk) selected
-      (format t "~&* ~A~%" (or description name))
-      (funcall thunk))))
+      (if print-only
+          (format t "~&~A~@[ ~24T~A~]~%" name description)
+        (progn
+          (format t "~&* ~A~%" (or description name))
+          (funcall thunk))))))
   (length *benchmarks*))

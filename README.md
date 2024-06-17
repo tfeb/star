@@ -335,7 +335,7 @@ Finally **`find-iterator-optimizer`**  finds an optimizer in the stack of tables
 ### Defining iterator optimizers: `define-iterator-optimizer`
 This is the normal way to define iterator optimizers.  The first argument is either the name of an optimizer or a list of a name and a table to define it in.  The second argument is an arglist with one or two elements: the first is the name for the form, the second, if given, for the environment.  The rest of the form is a function body.
 
-There is no completely satisfactor answer as to when iterator optimizers should be defined.  Originally I decided that  `define-iterator-optimizer` should *not* wrap its expansion in an `eval-when`, because iterator optimizers should not be defined before their iterators are, ie not before load time.  However this means that a file which says
+There is no completely satisfactory answer as to when iterator optimizers should be defined.  Originally I decided that  `define-iterator-optimizer` should *not* wrap its expansion in an `eval-when`, because iterator optimizers should not be defined before their iterators are, ie not before load time.  However this means that a file which says
 
 ```lisp
 (define in-foo (...) ...)
@@ -429,11 +429,11 @@ This iterates two values: symbol and package.  It takes one keyword argument whi
 `in-package-symbols` has the same caveats about order as `in-hash-table`.
 
 ### Three general iterators: `stepping`, `stepping*` and `stepping-values`
-`stepping` and `stepping*` are a pair of iterators which make and step bindings.  They take a number of clauses which look like `(var &key initially then type value while until)`.
+`stepping` and `stepping*` are a pair of iterators which make and step bindings.  They take a number of clauses which look either like `(var &key initially then type value while until)`, or like `(var &key as type value while until)`.
 
 - `var` is a variable name which will be bound.
-- `initially` is the initial value of the variable, default `nil`.
-- `then`, if given, is an expression whose value will be the new value of the variable on each step.
+- In the first form, `initially` is the initial value of the variable, default `nil`, and `then`, if given, is an expression whose value will be the new value of the variable on each step.
+- in the second form, `as` is a form which specifies the value of the variable at each step.
 - `type`, if given, is a type for the variable.
 - `value` means that the value of the variable will be returned from the iterator.  The default is true.
 - `while` is an expression which, if it evaluates to true (for all the variables), will cause the iterator to contue.
