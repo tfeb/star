@@ -3,7 +3,7 @@
 
 For an overview of Štar, see [here](https://www.tfeb.org/fragments/2024/05/15/an-iteration-construct-for-common-lisp/ "Štar: an iteration construct for Common Lisp"): this document is just the reference manual.
 
-At the time of writing, Štar itself is fairly complete.  The predefined iterators are less finished.  Until this paragraph goes away you should use them with some caution: things may change in incompatible ways.  I have tried to indicate the more flaky iterators below.
+At the time of writing, Štar itself is probably fairly complete.  The predefined iterators are less finished.  Until this paragraph goes away you should use them with some caution: things may change in incompatible ways.  I have tried to indicate the more flaky iterators below.
 
 ## Overview
 Štar is an iteration construct.  That's all it is: it does not accumulate values, destructure bindings or do your washing.  It doesn't do all those other things because there are better tools which do them already which can be used freely with Štar.  Similarly there are no special magic conditional mechanisms: rather there are local functions which can skip to the next iteration or terminate the iteration, and you use these with normal conditional expressions.
@@ -12,7 +12,7 @@ At the time of writing, Štar itself is fairly complete.  The predefined iterato
 Štar has no built-in knowledge of how to iterate over lists, or over ranges of reals or whatever.  Rather it treats iteration by asking two questions:
 
 - is there more?
-- if there is, what it it?
+- if there is, what is it?
 
 An *iterator* is an expression which can answer these two questions.  It does this by evaluating to two functions:
 
@@ -227,11 +227,11 @@ Because iterator optimizers work on names, they suffer from the unavoidable 'upw
     ...))
 ```
 
-Here the iterator optimzer for `in-list` will assume it is optimizing the global function, not the local one.  There is no general solution to this problem in CL.  But, equally, it  is very seldom a real problem.
+Here the iterator optimizer for `in-list` will assume it is optimizing the global function, not the local one.  There is no general solution to this problem in CL.  But, equally, it  is very seldom a real problem.
 
 An iterator optimizer is usually defined with `define-iterator-optimizer` but it is possible to add entries to the tables by hand.
 
-An iterator optimizer function takes two arguments: the form to be optimized and an environment object (normally this is suppressed when using `define-iterator-optimizer` ).  It should return either `nil` if it declines to optimize the form, or four or five values:
+An iterator optimizer function takes one argument and two optional arguments: the form to be optimized optionally an environment object, or `nil`, and the tail of the stack of optimizer tables at the point is was found, or `nil`.   When defining an iterator optimizer with `define-iterator-optimizer` the second two arguments, or just the third can be omitted, and a suitable function will be created.  It should return either `nil` if it declines to optimize the form, or four or five values:
 
 - true to say it can optimize the form;
 - a specification for variable bindings;
@@ -333,7 +333,7 @@ Finally it returns a function which wraps  a suitable `with-hash-table-iterator`
 Finally **`find-iterator-optimizer`**  finds an optimizer in the stack of tables.  It takes two arguments: the optimizer name and the stack of tables, defaultly the value of `*iterator-optimizers*`.  It returns tewo values: the optimizer and the point in the stack where it found it, or `nil` and `nil`.
 
 ### Defining iterator optimizers: `define-iterator-optimizer`
-This is the normal way to define iterator optimizers.  The first argument is either the name of an optimizer or a list of a name and a table to define it in.  The second argument is an arglist with one or two elements: the first is the name for the form, the second, if given, for the environment.  The rest of the form is a function body.
+This is the normal way to define iterator optimizers.  The first argument is either the name of an optimizer or a list of a name and a table to define it in.  The second argument is an arglist with one to three elements: the first is the name for the form, the second, if given, for the environment, the third, if given, is the tail of the stack of optimizers where the optimizer was found.  The rest of the form is a function body.
 
 There is no completely satisfactory answer as to when iterator optimizers should be defined.  Originally I decided that  `define-iterator-optimizer` should *not* wrap its expansion in an `eval-when`, because iterator optimizers should not be defined before their iterators are, ie not before load time.  However this means that a file which says
 
@@ -351,6 +351,11 @@ There is no completely satisfactory answer as to when iterator optimizers should
 will not optimize the iteration.  It would obviously be better if it did.  In particular it's pretty clear that, at least within a file (or compilation unit), compiler macros *are* expanded even though their functions are not yet defined.  Whether they are expanded *after* a file containing a function definition & corresponding compiler macro definition is compiled but before it is loaded is not clear: two of the implementations I tried did so, one did not[^3].
 
 After thinking about this I decided that examples like the above are so common that it is best for iterator optimizers to become defined in the compilation environment, even though this means they are defined before their functions.  So that is now what happens.
+
+### The second and third arguments
+The second argument to an iterator optimizer function is a CL [environment object](https://www.lispworks.com/documentation/HyperSpec/Body/26_glo_e.htm#environment_object "environment object") as passed to macro functions.  Optimizer functions can use it for the same purposes that macro functions do, if they want to.
+
+The third argument is the tail of `*iterator-optimizers*` with the first element of the tail being the table where the optimizer was found.  This can be used to allow optimizers to partly override other versions of themselves by calling `find-iterator-optimizer` on the tail of the argument they got passed.  To use this mechanism seriously some syntax along the lines of `call-next-method` would be nice.
 
 ## Some useful things
 These sre exported by `org.tfeb.star/utilities` and `org.tfeb.star`.

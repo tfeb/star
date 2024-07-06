@@ -110,7 +110,9 @@ Returns the optimizer, and the tail of the stack where it was found, or NIL and 
     (otherwise
      (star-error "optimizer stack isn't"))))
 
-(defmacro define-iterator-optimizer (name/table (form-name &optional (env-name nil env-name-p))
+(defmacro define-iterator-optimizer (name/table (form-name &optional
+                                                           (env-name nil env-name-p)
+                                                           (stack-name nil stack-name-p))
                                                 &body forms)
   "Define an iterator optimizer for Štar
 
@@ -131,17 +133,26 @@ See the manual"
          ;; defined before their functions: previously they were not,
          ;; now they are.  See the manual.
          (setf (get-iterator-optimizer ',name ,table)
-               ,(if env-name-p
-                    `(lambda (,form-name ,env-name)
-                      ,@decls
-                      (block ,name
-                        ,@body))
-                  (with-names (<ignored-env>)
-                    `(lambda (,form-name ,<ignored-env>)
-                       (declare (ignore ,<ignored-env>))
+               ,(cond
+                 (stack-name-p
+                  `(lambda (,form-name &optional ,env-name ,stack-name)
+                     ,@decls
+                     (block ,name
+                       ,@body)))
+                 (env-name-p
+                  (with-names (<ignored-stack>)
+                    `(lambda (,form-name &optional ,env-name ,<ignored-stack>)
+                       (declare (ignore ,<ignored-stack>))
                        ,@decls
                        (block ,name
-                         ,@body)))))
+                         ,@body))))
+                 (t
+                  (with-names (<ignored-env> <ignored-stack>)
+                    `(lambda (,form-name &optional ,<ignored-env> ,<ignored-stack>)
+                       (declare (ignore ,<ignored-env> ,<ignored-stack>))
+                       ,@decls
+                       (block ,name
+                         ,@body))))))
          ',name))))
 
 (defun iterator-optimizers (iterator environment)
@@ -165,17 +176,18 @@ See the manual"
       ((f &rest _)
        (:when (symbolp f))
        (if *enable-iterator-optimizers*
-           (dolist (optimizers *iterator-optimizers*
-                               (fallback-optimizers
-                                (make-symbol (format nil "~A-VALID" (symbol-name f)))
-                                (make-symbol (format nil "~A-CURSOR" (symbol-name f)))))
-             (let ((found (get-iterator-optimizer f optimizers)))
-               (when found
+           (multiple-value-bind (found stack) (find-iterator-optimizer f)
+             (if found
                  (multiple-value-bind (handled binding-sets valid cursor wrapper)
-                     (funcall found iterator environment)
-                   (when handled
-                     (return-from iterator-optimizers (values binding-sets valid cursor
-                                                              wrapper)))))))
+                     (funcall found iterator environment stack)
+                   (if handled
+                       (values binding-sets valid cursor wrapper)
+                     (fallback-optimizers
+                      (make-symbol (format nil "~A-VALID" (symbol-name f)))
+                      (make-symbol (format nil "~A-CURSOR" (symbol-name f))))))
+               (fallback-optimizers
+                (make-symbol (format nil "~A-VALID" (symbol-name f)))
+                (make-symbol (format nil "~A-CURSOR" (symbol-name f))))))
          (fallback-optimizers
           (make-symbol (format nil "~A-VALID" (symbol-name f)))
           (make-symbol (format nil "~A-CURSOR" (symbol-name f))))))
@@ -235,8 +247,10 @@ See the manual"
        (make-clause :vars (list (make-var :name variable
                                           :anonymous-p (anonymous-variable-p variable)))
                     :unique-iterator (unique-iterator iterator)))
-      (((variable &rest args &key &allow-other-keys) iterator)
+      (((variable &rest args &key name type anonymous special ifnore ignorable declarations)
+        iterator)
        (:when (symbolp variable))
+       (declare (ignore name type anonymous special ifnore ignorable declarations))
        (make-clause :vars (list (parse-complex-variable variable args))
                     :unique-iterator (unique-iterator iterator)))
       (((&rest vardescs) iterator)
@@ -441,41 +455,55 @@ See the manual"
         (compiling-iterator-optimizers (itable (mapcar #'clause-unique-iterator clauses)
                                                environment)
           (let ((compiled-bindings (compile-bindings body bindings itable)))
-            `(with-blocks ,(if top (list name nil) '(nil))
-               (tagbody
-                ,<start>
-                (unless ,(if (= (length itable) 1)
-                             (ie-valid-form (cdr (first itable)))
-                           `(and ,@(mapcar (lambda (ie)
-                                             (ie-valid-form (cdr ie)))
-                                           itable)))
-                  ;; some valid's aren't: we're done
-                  (go ,<end>))
-                ,(if top
-                     `(flet ((next () (go ,<start>))
-                             (next* () (go ,<start>))
-                             (final (&rest values)
-                               (declare (dynamic-extent values))
-                               (return-from ,name (values-list values)))
-                             (final* (&rest values)
-                               (declare (dynamic-extent values))
-                               (return-from ,name (values-list values))))
-                        (declare (inline next next* final final*)
-                                 (ignorable (function next)
-                                            (function next*)
-                                            (function final)
-                                            (function final*)))
+            (if top
+                `(with-blocks (,name nil)
+                   (flet ((final (&rest values)
+                            (declare (dynamic-extent values))
+                            (return (values-list values)))
+                          (final* (&rest values)
+                            (declare (dynamic-extent values))
+                            (return-from ,name (values-list values))))
+                     (declare (inline final final*)
+                              (ignorable (function final) (function final*)))
+                     (tagbody
+                      ,<start>
+                      (unless ,(if (= (length itable) 1)
+                                   (ie-valid-form (cdr (first itable)))
+                                 `(and ,@(mapcar (lambda (ie)
+                                                   (ie-valid-form (cdr ie)))
+                                                 itable)))
+                        ;; some valid's aren't: we're done
+                        (go ,<end>))
+                      (flet ((next () (go ,<start>))
+                             (next* () (go ,<start>)))
+                        (declare (inline next next*)
+                                 (ignorable (function next) (function next*)))
                         ,compiled-bindings)
-                   `(flet ((next () (go ,<start>))
-                           (final (&rest values)
-                             (declare (dynamic-extent values))
-                             (return (values-list values))))
-                      (declare (inline next final)
-                               (ignorable (function next) (function final)))
-                      ,compiled-bindings))
-                (go ,<start>)
-                ,<end>)
-               nil)))))))
+                      (go ,<start>)
+                      ,<end>
+                      nil)))
+              `(with-blocks (nil)
+                 (flet ((final (&rest values)
+                          (declare (dynamic-extent values))
+                          (return (values-list values))))
+                   (declare (inline final)
+                            (ignorable (function final)))
+                   (tagbody
+                    ,<start>
+                    (unless ,(if (= (length itable) 1)
+                                 (ie-valid-form (cdr (first itable)))
+                               `(and ,@(mapcar (lambda (ie)
+                                                 (ie-valid-form (cdr ie)))
+                                               itable)))
+                      ;; some valid's aren't: we're done
+                      (go ,<end>))
+                    (flet ((next () (go ,<start>)))
+                      (declare (inline next)
+                               (ignorable (function next)))
+                      ,compiled-bindings)
+                    (go ,<start>)
+                    ,<end>
+                    nil))))))))))
 
 (defmacro for (clauses &body body &environment environment)
   "Iteration construct
