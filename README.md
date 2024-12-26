@@ -5,6 +5,36 @@ For an overview of Štar, see [here](https://www.tfeb.org/fragments/2024/05/15/a
 
 At the time of writing, Štar itself is probably fairly complete.  The predefined iterators are less finished.  Until this paragraph goes away you should use them with some caution: things may change in incompatible ways.  I have tried to indicate the more flaky iterators below.
 
+## Contents
+- [Overview](#overview)
+- [Iterators](#iterators)
+- [Restrictions on iterator functions](#restrictions-on-iterator-functions)
+- [The iteration constructs: for and for\*](#the-iteration-constructs-for-and-for)
+- [Parallel iteration: for](#parallel-iteration-for)
+	- [Nested iteration: for\*](#nested-iteration-for)
+- [Iterator optimizers](#iterator-optimizers)
+	- [Specifications of variable bindings](#specifications-of-variable-bindings)
+	- [Valid form](#valid-form)
+	- [Cursor form](#cursor-form)
+	- [Wrapping function](#wrapping-function)
+	- [An example](#an-example)
+	- [The iterator optimizer tables](#the-iterator-optimizer-tables)
+	- [Defining iterator optimizers: define-iterator-optimizer](#defining-iterator-optimizers-define-iterator-optimizer)
+	- [The second and third arguments](#the-second-and-third-arguments)
+- [Some useful things](#some-useful-things)
+	- [Errors](#errors)
+	- [Compilation notes](#compilation-notes)
+- [Packages](#packages)
+- [Predefined iterators](#predefined-iterators)
+	- [List iteration: in-list, on-list](#list-iteration-in-list-on-list)
+	- [Vectors and general sequences: in-vector, in-sequence](#vectors-and-general-sequences-in-vector-in-sequence)
+	- [Hash tables: in-hash-table](#hash-tables-in-hash-table)
+	- [Packages: in-package-symbols](#packages-in-package-symbols)
+	- [Three general iterators: stepping, stepping\* and stepping-values](#three-general-iterators-stepping-stepping-and-stepping-values)
+	- [Ranges of reals: in-range](#ranges-of-reals-in-range)
+	- [Meta iterators](#meta-iterators)
+- [Notes](#notes)
+
 ## Overview
 Štar is an iteration construct.  That's all it is: it does not accumulate values, destructure bindings or do your washing.  It doesn't do all those other things because there are better tools which do them already which can be used freely with Štar.  Similarly there are no special magic conditional mechanisms: rather there are local functions which can skip to the next iteration or terminate the iteration, and you use these with normal conditional expressions.
 
@@ -583,13 +613,11 @@ These are iterators which iterate over things like other iterators, or functions
 ## Notes
 Štar itself is, I think, pretty stable.  The iterators are far less stable.  `in-range`, in particular, is always going to exist but might change in significant ways.
 
-There are currently no tests: there really need to be.  Before any real release, there will be tests.
-
 The public git repo for Štar only reflects major changes: the detailed history is not generally visible.
 
 Štar is pronounced roughly 'shtar'.  The sources are UTF-8 encoded: you will need a unicode-competent system to load it.  It's time.
 
-Much of the inspiration for Štar came from my friend Zyni: thanks to her for the inspiration behind it, actually making me write it and for many other things.
+Much of the inspiration for Štar came from my friend Zyni: thanks to her for the ideas behind it, actually making me write it and for many other things.
 
 Štar is dedicated to her, and to Ian Anderson.
 

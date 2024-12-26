@@ -108,17 +108,15 @@
    #:always
    #:in-range))
 
-(define-package :org.tfeb.star
+(define-conduit-package :org.tfeb.star
   (:documentation "Štar, including iterators and iterator protocol")
-  (:use)
   (:extends
    :org.tfeb.star/utilities
    :org.tfeb.star/impl
    :org.tfeb.star/iop
    :org.tfeb.star/iterators))
 
-(define-package :org.tfeb.*
+(define-conduit-package :org.tfeb.*
   (:documentation "Štar: just itself")
-  (:use)
   (:extends
    :org.tfeb.star/impl))

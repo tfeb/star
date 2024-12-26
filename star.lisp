@@ -233,7 +233,7 @@ See the manual"
               (make-var :name variable
                         :type type
                         :special-p special
-                        :ignore-p ignore
+                        :ignore-p ignore ;
                         :ignorable-p ignorable
                         :anonymous-p (if anonymousp
                                          anonymous
@@ -247,10 +247,10 @@ See the manual"
        (make-clause :vars (list (make-var :name variable
                                           :anonymous-p (anonymous-variable-p variable)))
                     :unique-iterator (unique-iterator iterator)))
-      (((variable &rest args &key name type anonymous special ifnore ignorable declarations)
+      (((variable &rest args &key name type anonymous special ignore ignorable declarations)
         iterator)
        (:when (symbolp variable))
-       (declare (ignore name type anonymous special ifnore ignorable declarations))
+       (declare (ignore name type anonymous special ignore ignorable declarations))
        (make-clause :vars (list (parse-complex-variable variable args))
                     :unique-iterator (unique-iterator iterator)))
       (((&rest vardescs) iterator)
