@@ -117,43 +117,43 @@ Returns the optimizer, and the tail of the stack where it was found, or NIL and 
   "Define an iterator optimizer for Štar
 
 See the manual"
-  (multiple-value-bind (name table)
-      (destructuring-match name/table
-        ((name table)
-         (:when (symbolp name))
-         (values name table))
-        (name
-         (:when (symbolp name))
-         (values name '(car *iterator-optimizers*)))
-        (otherwise
-         (syntax-error name/table "bad name / table")))
-    (multiple-value-bind (decls body) (parse-simple-body forms)
-      `(eval-when (:compile-toplevel :load-toplevel :execute)
-         ;; There is a question about whether optimizers should be
-         ;; defined before their functions: previously they were not,
-         ;; now they are.  See the manual.
-         (setf (get-iterator-optimizer ',name ,table)
-               ,(cond
-                 (stack-name-p
-                  `(lambda (,form-name &optional ,env-name ,stack-name)
+  (let-values (((name table)
+                (destructuring-match name/table
+                  ((name table)
+                   (:when (symbolp name))
+                   (values name table))
+                  (name
+                   (:when (symbolp name))
+                   (values name '(car *iterator-optimizers*)))
+                  (otherwise
+                   (syntax-error name/table "bad name / table"))))
+               ((decls body) (parse-simple-body forms)))
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+       ;; There is a question about whether optimizers should be
+       ;; defined before their functions: previously they were not,
+       ;; now they are.  See the manual.
+       (setf (get-iterator-optimizer ',name ,table)
+             ,(cond
+               (stack-name-p
+                `(lambda (,form-name &optional ,env-name ,stack-name)
+                   ,@decls
+                   (block ,name
+                     ,@body)))
+               (env-name-p
+                (with-names (<ignored-stack>)
+                  `(lambda (,form-name &optional ,env-name ,<ignored-stack>)
+                     (declare (ignore ,<ignored-stack>))
                      ,@decls
                      (block ,name
-                       ,@body)))
-                 (env-name-p
-                  (with-names (<ignored-stack>)
-                    `(lambda (,form-name &optional ,env-name ,<ignored-stack>)
-                       (declare (ignore ,<ignored-stack>))
-                       ,@decls
-                       (block ,name
-                         ,@body))))
-                 (t
-                  (with-names (<ignored-env> <ignored-stack>)
-                    `(lambda (,form-name &optional ,<ignored-env> ,<ignored-stack>)
-                       (declare (ignore ,<ignored-env> ,<ignored-stack>))
-                       ,@decls
-                       (block ,name
-                         ,@body))))))
-         ',name))))
+                       ,@body))))
+               (t
+                (with-names (<ignored-env> <ignored-stack>)
+                  `(lambda (,form-name &optional ,<ignored-env> ,<ignored-stack>)
+                     (declare (ignore ,<ignored-env> ,<ignored-stack>))
+                     ,@decls
+                     (block ,name
+                       ,@body))))))
+       ',name)))
 
 (defun iterator-optimizers (iterator environment)
   ;; Return found values which explain how to optimize an iterator: a
@@ -197,6 +197,50 @@ See the manual"
 ;;;; Štar itself
 ;;;
 
+;;; Handling declarations
+;;;
+
+(defun declarations-for-variables (declarations variables &key (complement nil) (environment nil))
+  ;; Return a list of declarations which apply to VARIABLES.
+  ;; COMPLEMENT means return a declaration whose specifiers are all
+  ;; those which *don't* apply to VARIABLES.  ENVIRONMENT is used for
+  ;; compile-time type information
+  (let* ((atomic-specifiers
+          (collecting
+            (dolist (declaration declarations)
+              (dolist (specifier (rest declaration))
+                (processing-declaration-specifier (specifier
+                                                   :constructor maker
+                                                   :bindings (variable-names function-names
+                                                                             specifier)
+                                                   :environment environment)
+                  (when variable-names
+                    (dolist (v variable-names)
+                      (collect (maker :variable-names (list v)))))
+                  (when function-names
+                    (dolist (f function-names)
+                      (collect (maker :function-names (list f)))))
+                  (when (not (or variable-names function-names))
+                    (collect specifier)))))))
+         (selected-specifiers
+          (collecting
+            (dolist (spec atomic-specifiers)
+              (processing-declaration-specifier (spec
+                                                 :bindings (variable-names specifier)
+                                                 :environment environment)
+                (if (not (null variable-names))
+                    (destructuring-bind (var) variable-names
+                      (if (not complement)
+                          (when (member var variables)
+                            (collect specifier))
+                        (unless (member var variables)
+                          (collect specifier))))
+                  (when complement
+                    (collect specifier))))))))
+    (if (not (null selected-specifiers))
+        `((declare ,@selected-specifiers))
+      ())))
+
 ;;; Parsing clause descriptions
 ;;;
 ;;; We need to make sure iterators are unique objects, hence this hair
@@ -217,7 +261,11 @@ See the manual"
   (declarations '()))
 
 (defstruct clause
+  ;; a clause contains its var objects, a list of interesting
+  ;; (non-anonymous) variable names, to which declarations may apply,
+  ;; and its (unique) iterator
   (vars (catastrophe "no vars"))
+  (interesting-varnames '())
   (unique-iterator (catastrophe "no iterator")))
 
 (defun anonymous-variable-p (s)
@@ -244,35 +292,46 @@ See the manual"
     (destructuring-match clause-description
       ((variable iterator)
        (:when (symbolp variable))
-       (make-clause :vars (list (make-var :name variable
-                                          :anonymous-p (anonymous-variable-p variable)))
-                    :unique-iterator (unique-iterator iterator)))
+       (let ((anonymous (anonymous-variable-p variable)))
+         (make-clause :vars (list (make-var :name variable :anonymous-p anonymous))
+                      :interesting-varnames (if anonymous '() (list variable))
+                      :unique-iterator (unique-iterator iterator))))
       (((variable &rest args &key name type anonymous special ignore ignorable declarations)
         iterator)
        (:when (symbolp variable))
        (declare (ignore name type anonymous special ignore ignorable declarations))
-       (make-clause :vars (list (parse-complex-variable variable args))
-                    :unique-iterator (unique-iterator iterator)))
+       (let ((var (parse-complex-variable variable args)))
+         (make-clause :vars (list var)
+                      :interesting-varnames (if (var-anonymous-p var) '() (list variable))
+                      :unique-iterator (unique-iterator iterator))))
       (((&rest vardescs) iterator)
-       (make-clause :vars (mapcar (lambda (vardesc)
-                                    (destructuring-match vardesc
-                                      (variable
-                                       (:when (symbolp variable))
-                                       (make-var :name variable
-                                                 :anonymous-p (anonymous-variable-p variable)))
-                                      ((variable &rest args &key &allow-other-keys)
-                                       (:when (symbolp variable))
-                                       (parse-complex-variable variable args))
-                                      (otherwise
-                                       (return-from parse-clause-description nil))))
-                                  vardescs)
-                    :unique-iterator (unique-iterator iterator)))
+       (multiple-value-bind (vars interesting-varnames)
+           (with-collectors (var interesting-name)
+             (dolist (vardesc vardescs)
+               (destructuring-match vardesc
+                 (variable
+                  (:when (symbolp variable))
+                  (let ((anonymous (anonymous-variable-p variable)))
+                    (var (make-var :name variable :anonymous-p anonymous))
+                    (unless anonymous
+                      (interesting-name variable))))
+                 ((variable &rest args &key &allow-other-keys)
+                  (:when (symbolp variable))
+                  (let ((var (parse-complex-variable variable args)))
+                    (var var)
+                    (unless (var-anonymous-p var)
+                      (interesting-name variable))))
+                 (otherwise
+                  (return-from parse-clause-description nil)))))
+       (make-clause :vars vars
+                    :interesting-varnames interesting-varnames
+                    :unique-iterator (unique-iterator iterator))))
       (otherwise nil))))
 
 (defun parse-clause-descriptions (clause-descriptions)
-  ;; return either NIL and NIL if things are hopeless, or NIL and a
-  ;; list of offending clause descriptions, or T and the parsed
-  ;; descriptions
+  ;; return either T and a list of clauses, or NIL and NIL if things
+  ;; are hopeless, or NIL and a list of offending clause descriptions,
+  ;; if things are less bad.
   (multiple-value-bind (goods bads)
       (with-collectors (good bad)
         (iterate next ((ctail clause-descriptions))
@@ -358,17 +417,17 @@ See the manual"
     ,unique-iterators
     ,environment))
 
-(defun compile-bindings (body bindings itable)
-  ;; Wrap forms corresponding BINDINGS around BODY, a list of forms.
-  ;; ITABLE is an alist which maps from unique iterators to
-  ;; itable-entries
+(defun compile-bindings (bindings declarations forms itable)
+  ;; Wrap forms corresponding to BINDINGS around DECLARATIONS and FORMS, a
+  ;; list of declarations and forms.  ITABLE is an alist which maps
+  ;; from unique iterators to itable-entries
   (if (null bindings)
-      `(progn ,@body)
+      `(locally ,@declarations ,@forms)
     (iterate next-binding ((btail bindings))
       (destructuring-bind (this-binding . more-bindings) btail
         (etypecase this-binding
           (let-binding
-           (multiple-value-bind (vars/inits declarations)
+           (multiple-value-bind (vars/inits our-declarations)
                (with-collectors (var/init declaration)
                  (dolist (clause (let-binding-clauses this-binding))
                    (let ((cursor-form (let ((ie (cdr (assoc (clause-unique-iterator clause)
@@ -400,9 +459,10 @@ See the manual"
                        (otherwise
                         (catastrophe "multiple varables in a let binding's clause"))))))
              `(let ,vars/inits
+                ,@our-declarations
                 ,@declarations
                 ,@(if (null more-bindings)
-                      body
+                      forms
                     `(,(next-binding more-bindings))))))
           (multiple-value-binding
            (let* ((clause (multiple-value-binding-clause this-binding))
@@ -411,7 +471,7 @@ See the manual"
                                  (unless ie
                                    (catastrophe "no cursor form"))
                                  (ie-cursor-form ie))))
-             (multiple-value-bind (variables declarations)
+             (multiple-value-bind (variables our-declarations)
                  (with-collectors (variable declaration)
                    (dolist (var (clause-vars clause))
                      (let ((variable (if (var-anonymous-p var)
@@ -426,9 +486,10 @@ See the manual"
                            (when (var-special-p var)
                              (declaration `(declare (special ,variable)))))))))
                `(multiple-value-bind ,variables ,cursor-form
+                  ,@our-declarations
                   ,@declarations
                   ,@(if (null more-bindings)
-                        body
+                        forms
                       `(,(next-binding more-bindings))))))))))))
 
 (defmacro with-blocks (names &body forms)
@@ -446,25 +507,81 @@ See the manual"
         `(block ,name
            (with-blocks ,more-names ,@forms)))))))
 
-(defun expand-for (clauses body environment &key (top t) (name 'for))
-  (multiple-value-bind (ok clauses) (parse-clause-descriptions clauses)
+(defun expand-for (clauses body environment &key (for* nil) (name (if for* 'for* 'for)))
+  ;; Expand FOR and FOR*.  This now has the recursive expansion,
+  ;; formerly done at the macro level, for FOR* in its being, which
+  ;; lets declaration-raising work
+  (let-values (((ok clauses) (parse-clause-descriptions clauses))
+               ((declarations forms) (parse-simple-body body)))
     (unless ok
       (syntax-error clauses "bad clause or clauses"))
-    (with-names (<start> <end>)
-      (let ((bindings (clauses->bindings clauses)))
-        (compiling-iterator-optimizers (itable (mapcar #'clause-unique-iterator clauses)
-                                               environment)
-          (let ((compiled-bindings (compile-bindings body bindings itable)))
-            (if top
-                `(with-blocks (,name nil)
+    (iterate expand ((current (if for* (list (first clauses)) clauses))
+                     (more (if for* (rest clauses) '()))
+                     (top t)
+                     (seen-varnames '()))
+      (with-names (<start> <end>)
+        (let* ((bindings (clauses->bindings current))
+               (our-varnames (collecting
+                               (dolist (clause current)
+                                 (dolist (name (clause-interesting-varnames clause))
+                                   (collect name)))))
+               (effective-declarations
+                (if (null more)
+                    (append
+                     (declarations-for-variables declarations our-varnames
+                                                 :environment environment)
+                     (declarations-for-variables declarations
+                                                 (append our-varnames seen-varnames)
+                                                 :environment environment
+                                                 :complement t))
+                  (declarations-for-variables declarations our-varnames
+                                              :environment environment)))
+               (effective-forms (if (null more)
+                                    forms
+                                  (list
+                                   (expand (list (first more))
+                                           (rest more)
+                                           nil
+                                           (append our-varnames seen-varnames))))))
+          (compiling-iterator-optimizers (itable (mapcar #'clause-unique-iterator current)
+                                                 environment)
+            (let ((compiled-bindings (compile-bindings bindings
+                                                       effective-declarations
+                                                       effective-forms
+                                                       itable)))
+              (if top
+                  `(with-blocks (,name nil)
+                     (flet ((final (&rest values)
+                              (declare (dynamic-extent values))
+                              (return (values-list values)))
+                            (final* (&rest values)
+                              (declare (dynamic-extent values))
+                              (return-from ,name (values-list values))))
+                       (declare (inline final final*)
+                                (ignorable (function final) (function final*)))
+                       (tagbody
+                        ,<start>
+                        (unless ,(if (= (length itable) 1)
+                                     (ie-valid-form (cdr (first itable))) ;
+                                   `(and ,@(mapcar (lambda (ie)
+                                                     (ie-valid-form (cdr ie)))
+                                                   itable)))
+                          ;; some valid's aren't: we're done
+                          (go ,<end>))
+                        (flet ((next () (go ,<start>))
+                               (next* () (go ,<start>)))
+                          (declare (inline next next*)
+                                   (ignorable (function next) (function next*)))
+                          ,compiled-bindings)
+                        (go ,<start>)
+                        ,<end>
+                        nil)))
+                `(with-blocks (nil)
                    (flet ((final (&rest values)
                             (declare (dynamic-extent values))
-                            (return (values-list values)))
-                          (final* (&rest values)
-                            (declare (dynamic-extent values))
-                            (return-from ,name (values-list values))))
-                     (declare (inline final final*)
-                              (ignorable (function final) (function final*)))
+                            (return (values-list values))))
+                     (declare (inline final)
+                              (ignorable (function final)))
                      (tagbody
                       ,<start>
                       (unless ,(if (= (length itable) 1)
@@ -474,36 +591,13 @@ See the manual"
                                                  itable)))
                         ;; some valid's aren't: we're done
                         (go ,<end>))
-                      (flet ((next () (go ,<start>))
-                             (next* () (go ,<start>)))
-                        (declare (inline next next*)
-                                 (ignorable (function next) (function next*)))
+                      (flet ((next () (go ,<start>)))
+                        (declare (inline next)
+                                 (ignorable (function next)))
                         ,compiled-bindings)
                       (go ,<start>)
                       ,<end>
-                      nil)))
-              `(with-blocks (nil)
-                 (flet ((final (&rest values)
-                          (declare (dynamic-extent values))
-                          (return (values-list values))))
-                   (declare (inline final)
-                            (ignorable (function final)))
-                   (tagbody
-                    ,<start>
-                    (unless ,(if (= (length itable) 1)
-                                 (ie-valid-form (cdr (first itable)))
-                               `(and ,@(mapcar (lambda (ie)
-                                                 (ie-valid-form (cdr ie)))
-                                               itable)))
-                      ;; some valid's aren't: we're done
-                      (go ,<end>))
-                    (flet ((next () (go ,<start>)))
-                      (declare (inline next)
-                               (ignorable (function next)))
-                      ,compiled-bindings)
-                    (go ,<start>)
-                    ,<end>
-                    nil))))))))))
+                      nil)))))))))))
 
 (defmacro for (clauses &body body &environment environment)
   "Iteration construct
@@ -515,14 +609,4 @@ See the manual."
   "Nested iteration construct
 
 See the manual."
-  (if (null clauses)
-      (expand-for clauses body environment :top t :name 'for*)
-    (iterate expand-for* ((ctail clauses)
-                          (top t))
-      (destructuring-bind (this-clause . more-clauses) ctail
-        (if (null more-clauses)
-            (expand-for (list this-clause) body environment :top top :name 'for*)
-          (expand-for (list this-clause)
-                      `(,(expand-for* more-clauses nil))
-                      environment
-                      :top top :name 'for*))))))
+  (expand-for clauses body environment :for* t))

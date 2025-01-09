@@ -1,5 +1,5 @@
 # Štar: a simple and extensible iteration construct
-Štar is a concise and extensible iteration construct for Common Lisp which aims to be pleasant to use, easy to understand, general, and not to look like Fortran.
+Štar is a concise and extensible iteration construct for Common Lisp which aims to be pleasant to use, easy to understand, general, and to not look like Fortran.
 
 For an overview of Štar, see [here](https://www.tfeb.org/fragments/2024/05/15/an-iteration-construct-for-common-lisp/ "Štar: an iteration construct for Common Lisp"): this document is just the reference manual.
 
@@ -10,8 +10,9 @@ At the time of writing, Štar itself is probably fairly complete.  The predefine
 - [Iterators](#iterators)
 - [Restrictions on iterator functions](#restrictions-on-iterator-functions)
 - [The iteration constructs: for and for\*](#the-iteration-constructs-for-and-for)
-- [Parallel iteration: for](#parallel-iteration-for)
+	- [Parallel iteration: for](#parallel-iteration-for)
 	- [Nested iteration: for\*](#nested-iteration-for)
+- [Declaration handling](#declaration-handling)
 - [Iterator optimizers](#iterator-optimizers)
 	- [Specifications of variable bindings](#specifications-of-variable-bindings)
 	- [Valid form](#valid-form)
@@ -134,7 +135,7 @@ It is not specified which of the two functions steps the iterator.  So for an it
 
 ## The iteration constructs: `for` and `for*`
 These are exported by `org.tfeb.*` and `org.tfeb.star`.
-## Parallel iteration: `for`
+### Parallel iteration: `for`
 `for` iterates over zero or more iterators.  The syntax is
 
 `(for` `(`*clause*\*`)` *declaration*\* *form*\*`)`
@@ -151,11 +152,11 @@ and finally a *var* is either a symbol naming a variable, or an expression like
 
 `(`*name* `&key type special ignore ignorable anonymous)`
 
-which allows various declarations to be made about variables.
+which allows various declarations to be made about variables.  See [below](#declaration-handling "Declaration handling") for some more about declaration handling: these options are very seldom needed now.
 
 Variables whose name is `"_"` are anonymous by default: each such variable is unique and is ignored.  You could make such a variable not be anonymous by specifying it as `(_ :anonymous nil)`.
 
-The other options for the complicated variable case exist mostly for the use of `for*`: for `for` declarations at the start of the body do what you expect.
+The other options for the complicated variable case are now mostly unneeded: there are some cases where they are in theory useful in`for*`: for `for` declarations at the start of the body do what you expect.
 
 Finally an *iterator* is just a form which evaluates to two functions as specified above.
 
@@ -206,7 +207,7 @@ This version is entirely equivalent to the first.
       (final* c))))
 ```
 
-This is a case where the fancy form of variables is useful: it's not possible, in general, to work out which, if any, variables a declaration refers to in CL[^1], so it's not possible to 'raise' declarations so the apply to the right binding.  Rather than doing so but getting it wrong sometimes, Štar doesn't try but allows you to add some declarations with the fancy variable form.  So if you want to declare that `c` is a character, you need to do it like this
+This is a case where the fancy form of variables is occasionally useful: if you have repeated variables but want a declaration to apply to only one of them, then you can use the fancy variable form to do this.  This is now, at best, an obscure case, but it's there just in case.  See [below](#declaration-handling "Declaration handling") for more about declaration handling.
 
 ```lisp
 (defun search-for-char (string char-bag)
@@ -243,6 +244,26 @@ Now you get the index as well as the character:
 - `next*` skips to the next outer-level iteration while `next` skips to the next innermost loop.
 
 Both `for` and `for*` return `nil` unless values are returned by `final` or `final*`.
+
+## Declaration handling
+The first version of Štar made no attempt to do anything smart with declarations, relying instead on the fancy variable form.  This version now uses my `process-declarations` hack to work out which declarations in a form apply to which variables and to raise them to the appropriate place.  Štar treats a bound variable declaration as applying to all variables with the given name[^1].  This doesn't matter for `for`, but it does for `for*`, since bindings may be repeated.  Thus in a form like
+
+```lisp
+(for* ((a (in-range 10))
+       (a (in-range a)))
+  (declare (type fixnum a))
+  ...)
+```
+
+The `fixnum` declaration applies to both bindings of `a`.  If you want it to apply to only one, you need to use the hairy variable form (this is the only real instance where it's even potentially useful now):
+
+```lisp
+(for* (((a :type fixnum) (in-range ...))
+       (a (in-range (1+ a))))
+  ...)
+```
+
+It's rather hard to think of cases where this might actually be useful, but the facility is still there.
 
 ## Iterator optimizers
 The protocol described here is exported by `org.tfeb.star/iop` and `org.tfeb.star`.
@@ -624,7 +645,7 @@ Much of the inspiration for Štar came from my friend Zyni: thanks to her for th
 ---
 
 
-[^1]:	This is one of the things that should be repaired in an imaginary future CL standard.
+[^1]:	See *[Something unclear in the Common Lisp standard](https://tfeb.org/fragments/2023/04/18/something-unclear-in-the-common-lisp-standard/ "Something unclear in the Common Lisp standard")* for a case where this same question applies to CL itself.
 
 [^2]:	*Downward macro hygiene* problems happen when a macro binds variables which it should not.  This is avoidable by using gensyms for names.  *Upward macro hygiene* problems happen when a macro makes assumptions that a function or variable is what it thinks it is, and has not been locally rebound above it.  This is not avoidable in CL.  It is almost never a problem (and never a problem for symbols in the `CL` package).
 

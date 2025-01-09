@@ -11,6 +11,8 @@
   :homepage "https://github.com/tfeb/star"
   :depends-on ("org.tfeb.conduit-packages/define-package"
                "org.tfeb.hax.utilities"
+               "org.tfeb.hax.process-declarations"
+               "org.tfeb.hax.let-values"
                "org.tfeb.dsm"
                "org.tfeb.hax.collecting"
                "org.tfeb.hax.iterate")
@@ -43,6 +45,8 @@
    (:file "test-sanity")
    (:file "test-iterators")
    (:file "test-ranges")
+   #+(or LispWorks SBCL)
+   (:file "test-declarations")
    (:file "test-all")))
 
 (defsystem "org.tfeb.star/bench"

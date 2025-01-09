@@ -7,6 +7,8 @@
 (org.tfeb.tools.require-module:needs
  ((:org.tfeb.conduit-packages/define-package
    :org.tfeb.hax.utilities
+   :org.tfeb.hax.process-declarations
+   :org.tfeb.hax.let-values
    :org.tfeb.dsm
    :org.tfeb.hax.collecting
    :org.tfeb.hax.iterate)
@@ -57,6 +59,8 @@
   (:use :cl)
   (:use
    :org.tfeb.hax.utilities
+   :org.tfeb.hax.process-declarations
+   :org.tfeb.hax.let-values
    :org.tfeb.dsm
    :org.tfeb.hax.collecting
    :org.tfeb.hax.iterate)
