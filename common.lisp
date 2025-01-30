@@ -22,20 +22,20 @@
          :format-control control
          :format-arguments arguments))
 
-(define-condition syntax-error (star-error program-error)
+(define-condition star-syntax-error (star-error program-error)
   ((form :initform nil
          :initarg :form
-         :reader syntax-error-form))
+         :reader star-syntax-error-form))
   (:report
    (lambda (se stream)
-     (format stream "syntax error~@[ in ~S~]: ~A"
-             (syntax-error-form se)
+     (format stream "Syntax error~@[ in ~S~]: ~A"
+             (star-syntax-error-form se)
              (apply #'format nil
                     (simple-condition-format-control se)
                     (simple-condition-format-arguments se))))))
 
-(defun syntax-error (form control &rest arguments)
-  (error 'syntax-error
+(defun star-syntax-error (form control &rest arguments)
+  (error 'star-syntax-error
          :form form
          :format-control control
          :format-arguments arguments))
@@ -54,7 +54,7 @@
   (:documentation
    "Condition type for Štar compilation notes"))
 
-(defun note (format &rest arguments)
+(defun star-note (format &rest arguments)
   (signal 'star-note
           :format-control format
           :format-arguments arguments))

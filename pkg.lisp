@@ -24,6 +24,8 @@
   (:use)
   (:export
    #:star-error
+   #:star-syntax-error
+   #:star-syntax-error-form
    #:star-note
    #:reporting-star-notes))
 
@@ -50,9 +52,7 @@
   (:export
    #:*builtin-iterator-optimizer-table*
    #:*star-bootstrap*
-   #:syntax-error
-   #:catastrophe
-   #:note))
+   #:catastrophe))
 
 (define-package :org.tfeb.star/impl
   ;; Štar's implementation
@@ -82,6 +82,7 @@
   (:use :cl)
   (:use
    :org.tfeb.hax.utilities
+   :org.tfeb.hax.let-values
    :org.tfeb.dsm
    :org.tfeb.hax.collecting
    :org.tfeb.hax.iterate)
@@ -92,6 +93,7 @@
    :org.tfeb.star/impl)
   (:export
    ;; Builtin iterators
+   #:in-naturals
    #:in-sequence
    #:in-list
    #:on-list
@@ -109,8 +111,7 @@
    #:cyclically
    #:in-iterators
    #:in-parallel-iterators
-   #:always
-   #:in-range))
+   #:always))
 
 (define-conduit-package :org.tfeb.star
   (:documentation "Štar, including iterators and iterator protocol")

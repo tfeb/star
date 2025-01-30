@@ -126,7 +126,7 @@ See the manual"
                    (:when (symbolp name))
                    (values name '(car *iterator-optimizers*)))
                   (otherwise
-                   (syntax-error name/table "bad name / table"))))
+                   (star-syntax-error name/table "bad name / table"))))
                ((decls body) (parse-simple-body forms)))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
        ;; There is a question about whether optimizers should be
@@ -514,7 +514,7 @@ See the manual"
   (let-values (((ok clauses) (parse-clause-descriptions clauses))
                ((declarations forms) (parse-simple-body body)))
     (unless ok
-      (syntax-error clauses "bad clause or clauses"))
+      (star-syntax-error clauses "bad clause or clauses"))
     (iterate expand ((current (if for* (list (first clauses)) clauses))
                      (more (if for* (rest clauses) '()))
                      (top t)

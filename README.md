@@ -27,13 +27,19 @@ At the time of writing, Štar itself is probably fairly complete.  The predefine
 	- [Compilation notes](#compilation-notes)
 - [Packages](#packages)
 - [Predefined iterators](#predefined-iterators)
+	- [Simple numeric iteration: in-naturals](#simple-numeric-iteration-in-naturals)
 	- [List iteration: in-list, on-list](#list-iteration-in-list-on-list)
 	- [Vectors and general sequences: in-vector, in-sequence](#vectors-and-general-sequences-in-vector-in-sequence)
 	- [Hash tables: in-hash-table](#hash-tables-in-hash-table)
 	- [Packages: in-package-symbols](#packages-in-package-symbols)
 	- [Three general iterators: stepping, stepping\* and stepping-values](#three-general-iterators-stepping-stepping-and-stepping-values)
-	- [Ranges of reals: in-range](#ranges-of-reals-in-range)
 	- [Meta iterators](#meta-iterators)
+- [Package exports](#package-exports)
+	- [org.tfeb.star/utilities](#orgtfebstarutilities)
+	- [org.tfeb.star/iterator-optimizer-protocol](#orgtfebstariterator-optimizer-protocol)
+	- [org.tfeb.\*](#orgtfeb)
+	- [org.tfeb.star/iterators](#orgtfebstariterators)
+	- [org.tfeb.star](#orgtfebstar)
 - [Notes](#notes)
 
 ## Overview
@@ -270,7 +276,7 @@ The protocol described here is exported by `org.tfeb.star/iop` and `org.tfeb.sta
 
 Iterator optimizers are functions which tell Štar how to essentially inline iterators.   They are attached to iterators which are named functions.  They are looked up at macroexpansion time in a stack of tables: this is usually just two, with a user table and a builtin table underneath it which is protected, but you can push and pop other entries, which might be useful, for instance, when compiling code where you can make specific assumptions about types which are not generally true.
 
-Because iterator optimizers work on names, they suffer from the unavoidable 'upward macro hygiene' problem that most CL macros suffer from[^2].  Here is an example of an upward macro hygiene problem in štar:
+Because iterator optimizers work on names, they suffer from the unavoidable 'upward macro hygiene' problem that most CL macros suffer from[^2].  Here is an example of an upward macro hygiene problem in Štar:
 
 ```lisp
 (flet ((in-list (...) ...))
@@ -409,13 +415,15 @@ The second argument to an iterator optimizer function is a CL [environment objec
 The third argument is the tail of `*iterator-optimizers*` with the first element of the tail being the table where the optimizer was found.  This can be used to allow optimizers to partly override other versions of themselves by calling `find-iterator-optimizer` on the tail of the argument they got passed.  To use this mechanism seriously some syntax along the lines of `call-next-method` would be nice.
 
 ## Some useful things
-These sre exported by `org.tfeb.star/utilities` and `org.tfeb.star`.
+These are exported by `org.tfeb.star/utilities` and `org.tfeb.star`.
 
 ### Errors
-Any error that Štar thinks is your fault will be a condition inheriting from the `star-error` condition type.  Errors that it thinks are bugs will *not* inherit from this type.
+Any error that Štar thinks is your fault will be a condition inheriting from the `star-error` condition type.  Errors that it thinks are bugs will *not* inherit from this type.  `star-error`is a subclass of `simple-error`, and there is a function `star-error` which is like `error` for them, when `error`'s first argument is a string.
+
+There is a subclass of `star-error` called `star-syntax-error` which is for syntax errors.  `syntax-error-form` retrieves the form that was responsible for the error.  The function `star-syntax-error` is like`error` for `star-syntax-error`s: it has a first argument which is the form and the remaining argument's are as for the stringy case of `error`.
 
 ### Compilation notes
-Štar, and particularly iterator optimizers, can report various notes which might be helpful.  These are done by signalling `star-note`, which is a condition type which is a subtype of `simple-condition`.
+Štar, and particularly iterator optimizers, can report various notes which might be helpful.  These are done by signalling `star-note`, which is a condition type which is a subtype of `simple-condition`.  There is a function, `star-note` which is like the stringy-case of `signal` for these conditions.
 
 **`reporting-star-notes`** is a macro which will report star notes to a specified stream, by default `*debug-io*`.  You want to wrap this around a compilation which is when notes are reported:
 
@@ -435,12 +443,30 @@ The system is structured so that you can pick and choose which bits you want, st
 - **`org.tfeb.star/utilities`** is the names of conditions and `reporting-star-notes`.
 - **`org.tfeb.star`** combines the above four packages.
 
+See [below](#package-exports "Package exports") for an exhaustive list of what exports what.
+
 ---
 
 ## Predefined iterators
 All of these are exported by `org.tfeb.star/iterators` and `org.tfeb.star`.
 
-These are in a *much* more rudimentary state than Štar itself: many were written before it was finished, as proofs of concept, or both.  The list below may change significantly.
+These are in a *much* more rudimentary state than Štar itself: many were written before it was finished, as proofs of concept, or both.  The list below may change significantly (and has done so in version 3).
+
+### Simple numeric iteration: `in-naturals`
+`in-naturals` iterates over the natural numbers: integers greater than or equal to zero.  It has two simple forms:
+
+- `(in-naturals)` will iterate up from `0`with no bound;
+- `(in-naturals bound)` will iterate up from `0` below `bound`, where `bound` should be a `real`: if it is not an `integer` the floor of it is used as the bound.
+
+The fancy form has three keyword arguments:
+
+- `bound` gives the bound as above;
+- `fixnum`warrants that the values, including `bound` are all `fixnums`.
+- `inclusive` makes the bound inclusive rather than exclusive.
+
+This iterator is optimized pretty well.  Note that the cursor variable steps one beyond the last value returned.  This is unlikely to matter unless you want to iterate up to `most-positive-fixnum`.
+
+See [below](#three-general-iterators-stepping-stepping-and-stepping-values "Three general iterators: stepping, stepping* and stepping-values") for a way of iterating more generally over numeric ranges.
 
 ### List iteration: `in-list`, `on-list`
 `in-list` iterates over the elements of a list.  It has a single keyword argument, `by` which if given should be a function to select the appropriate nex tail of the list.  So `(in-list l :by #'cddr)` iterates in steps of two.
@@ -529,11 +555,11 @@ a 18 b 19
 nil
 ```
 
-`stepping-values` is conceptually similar to `stepping` but it steps a single set of multiple values.  Its syntax is `(stepping-values vars &key initially then types values while until)`
+`stepping-values` is conceptually similar to `stepping` but it steps a single set of multiple values.  Its syntax is `(stepping-values vars &key initially then types values while until)`, or `(stepping-values vars &key as types values while until)`.
 
 - `vars` is a list of variables to step.
-- `initially` is a form returning multiple values for them: the default is to bind them all to`nil`.
-- `then` is a form returning new values, the default being not to assign new values.
+-  In the first form`initially` is a form returning multiple values for them: the default is to bind them all to`nil`, and `then` is a form returning new values, the default being not to assign new values.
+- In the second form `as` is used to specify the values of the variables at each step.
 - `values` is a form which returns values from the iteration.
 - `types` is a list of types for the variables.
 - `while` and `until` are as in `stepping`.
@@ -569,48 +595,20 @@ Here is an example of `stepping-values` which will somewhat perversely step list
     :values (funcall v)))
 ```
 
-These three iterators do not have optimizers: without writing a code walker it's hard to see how to write one.
+These three iterators are now well-optimized, and in particular forms like
 
-### Ranges of reals: `in-range`
-This iterates over ranges of reals.  It *may or may not* be correct and probably is not final at present.  It has a simple form and a hairy form.
+```lisp
+(for ((i (stepping (i :type fixnum
+                      :initially 100
+                      :then (1+ i)
+                      :while (< i 200)))))
+  (declare (type fixnum i))
+  ...)
+```
 
-**The simple form** `(in-range r)` where `r` is a real iterates from zero up to or down to `r`, if `r` is negative; `(in-range)` iterates over the natural numbers (where the natural numbers include zero).
+Should be reliably fast.
 
-**The hairy form** is `(in-range &key from after to before by type)`.
-
-Exactly one of `from` and `after` must be given:
-
-- if `from` is given this is where the iteration starts;
-- if `after` is given it starts at `(+ from by)`.
-
-At most one of `to` and `before` must be given:
-
-- if `to` is given the iteration may reach this value but will not exceed it;
-- if `before` is given the iteration stops before this value;
-- if neither is given the iteration is unbounded.
-
-`by` is the step.  It is defaulted from the start (`from` or `after`) and end (`to` or `before`) limits: if the end is above or equal to the start it defaults to 1, and if it is below it it defaults to -1.  If the iteration is unbounded it defaults to 1.  The defaults are all coerced to the appropriate type.
-
-`type` is the type.
-
-There is fairly complicated behaviour with types, with the aim being to be both consistent but to allow the optimizer to produce fast code.
-
-**Without any user-specified types** things are fairly simple.
-
-- If all the numeric arguments are rationals (or the limit is `*`) then nothing needs done.
-- If any of the values are floats, then the widest float type is found, and everything is coerced to that.
-
-The second rule means that the first return from `(range :from 0 :before 10.0)` is `1.0` not `1`.  This means that the type of every returned value is consistent: it doesn't switch from some rational type to some float type, and all the float values will be of the same type
-
-**With user-specified types** things are less clear.
-
-- If the user-specified type is a subtype of `rational` then all of the initial values should be subtypes of this type.
-- If the user-specified type is a subtype of `float`, then at least one of the initial values should be a float.  All the values are coerced to the type of the widest float, and everything should then be of the specified type.
-
-**The optimizer.**  The optimizer for `in-range` is pretty hairy: it's almost half of all the iterator code.  It's also just gory, and may well be buggy.  The times when it should be able to produce good code are:
-
-- when all the numerical values are literal numbers;
-- when a literal type is given which is friendly to the implementation.
+For all the `stepping` variants you should not explicitly assign to the stepped variables: in the optimized versions the stepped variables get bound in several different places, so the assignments will in general be lost.
 
 ### Meta iterators
 These are iterators which iterate over things like other iterators, or functions.
@@ -628,6 +626,97 @@ These are iterators which iterate over things like other iterators, or functions
 **`in-parallel-iterators`** takes arguments which are iterators.  At each step it returns one value from each until one is exhausted.
 
 **`always`** endlessly returns its argument's value.  This may go away.
+
+## Package exports
+This is a list of which public packages export what.
+
+### `org.tfeb.star/utilities`
+- `reporting-star-notes`
+- `star-error`
+- `star-note`
+- `star-syntax-error`
+- `star-syntax-error-form`
+
+### `org.tfeb.star/iterator-optimizer-protocol`
+- `*enable-iterator-optimizers*`
+- `*iterator-optimizers*`
+- `define-iterator-optimizer`
+- `find-iterator-optimizer`
+- `get-iterator-optimizer`
+- `make-iterator-optimizer-table`
+- `map-iterator-optimizer-table`
+- `remove-iterator-optimizer`
+
+### `org.tfeb.*`
+- `final`
+- `final*`
+- `for`
+- `for*`
+- `next`
+- `next*`
+
+### `org.tfeb.star/iterators`
+- `always`
+- `cyclically`
+- `cyclically-calling`
+- `in-hash-table`
+- `in-iterators`
+- `in-list`
+- `in-naturals`
+- `in-package-symbols`
+- `in-parallel-iterators`
+- `in-sequence`
+- `in-vector`
+- `on-list`
+- `sequentially`
+- `sequentially*`
+- `sequentially-calling`
+- `sequentially-calling*`
+- `stepping`
+- `stepping*`
+- `stepping-values`
+
+### `org.tfeb.star`
+This is a conduit for the above four packages.
+
+- `*enable-iterator-optimizers*`
+- `*iterator-optimizers*`
+- `always`
+- `cyclically`
+- `cyclically-calling`
+- `define-iterator-optimizer`
+- `final`
+- `final*`
+- `find-iterator-optimizer`
+- `for`
+- `for*`
+- `get-iterator-optimizer`
+- `in-hash-table`
+- `in-iterators`
+- `in-list`
+- `in-naturals`
+- `in-package-symbols`
+- `in-parallel-iterators`
+- `in-sequence`
+- `in-vector`
+- `make-iterator-optimizer-table`
+- `map-iterator-optimizer-table`
+- `next`
+- `next*`
+- `on-list`
+- `remove-iterator-optimizer`
+- `reporting-star-notes`
+- `sequentially`
+- `sequentially*`
+- `sequentially-calling`
+- `sequentially-calling*`
+- `star-error`
+- `star-note`
+- `star-syntax-error`
+- `star-syntax-error-form`
+- `stepping`
+- `stepping*`
+- `stepping-values`
 
 ---
 

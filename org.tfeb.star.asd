@@ -22,8 +22,7 @@
   ((:file "pkg")
    (:file "common")
    (:file "star")
-   (:file "iterators")
-   (:file "ranges")))
+   (:file "iterators")))
 
 (defsystem "org.tfeb.star/test"
   :description "Štar tests"
@@ -44,7 +43,6 @@
    (:file "preamble")
    (:file "test-sanity")
    (:file "test-iterators")
-   (:file "test-ranges")
    #+(or LispWorks SBCL)
    (:file "test-declarations")
    (:file "test-all")))

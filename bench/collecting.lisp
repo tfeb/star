@@ -16,9 +16,9 @@
 (defun for-collecting (n m)
   (declare (type fixnum n m)
            (optimize speed))
-  (for ((_ (in-range :from 0 :before n :by 1 :type 'fixnum)))
+  (for ((_ (in-naturals :bound n :fixnum t)))
     (collecting
-      (for ((_ (in-range :from 0 :before m :by 1 :type 'fixnum)))
+      (for ((_ (in-naturals :bound m :fixnum t)))
         (collect 1))))
   t)
 
@@ -40,10 +40,10 @@
   (declare (type fixnum n m)
            (optimize speed))
   (with-accumulators ((r + :initially 0 :type fixnum))
-    (for ((_ (in-range :from 0 :before n :by 1 :type 'fixnum)))
+    (for ((_ (in-naturals :bound n :fixnum t)))
       (r
        (with-accumulators ((s + :initially 0 :type fixnum))
-         (for ((_ (in-range :from 0 :before m :by 1 :type 'fixnum)))
+         (for ((_ (in-naturals :bound m :fixnum t)))
            (s 1)))))))
 
 (defun dotimes-summing (n m)
