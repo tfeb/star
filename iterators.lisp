@@ -33,12 +33,18 @@
      (values form t))))
 
 (defun in-naturals (&rest arg/s)
-  "Iterate over the natural numbers
+  "Iterate over natural numbers, starting from 0
 
-Natural numbers start from 0.
+There are three cases:
 
-BOUND, if given is an integer exclusive upper bound.  FIXNUM, if true,
-says that the numbers are all fixnums, including BOUND.
+- (in-naturals) will iterate up from 0 indefinitely;
+- (in-naturals bound) will iterate below bound;
+- the third case has keyword arguments BOUND for the bound, INCLUSIVE
+  says whether the bound is inclusive or exclusive, and FIXNUM warrants
+  that all the values are fixnums.
+
+BOUND need not be an integer: its floor is used (and should be a
+fixnum if FIXNUM is given).
 
 Optimizable."
   (declare (dynamic-extent arg/s))
