@@ -1,6 +1,6 @@
 ;;;; Štar: builtin iterators, other than ranges
 ;;;
-;;; Very preliminary experimental versions: most of this is to test
+;;; Preliminary experimental versions: most of this is to test
 ;;; functionality
 ;;;
 ;;; More of these should dogfood
@@ -508,45 +508,46 @@ here."
                                thens))
           (msetf (if starred 'setf 'psetf))
           (bind (if starred 'let* 'let)))
-      `(,bind ,bindings
-         (declare ,@tds)
-         (values
-          ,(case (length tests)
-             (0
-              '(constantly t))
-             (1
-              `(thunk
-                 ,(first tests)))
-             (otherwise
-              `(thunk
-                 (and ,@tests))))
-          ,(case (length values)
-             (0
-              '#'values)
-             (1
-              (case (length thens)
-                (0
-                 `(thunk ,(first values)))
-                (1
-                 `(thunk
-                    (prog1 ,(first values)
-                      (setf ,@assignments))))
-                (otherwise
-                 `(thunk
-                    (prog1 ,(first values)
-                      (,msetf ,@assignments))))))
-             (otherwise
-              (case (length thens)
-                (0
-                 `(thunk (values ,@values)))
-                (1
-                 `(thunk
-                    (multiple-value-prog1 (values ,@values)
-                      (setf ,@assignments))))
-                (otherwise
-                 `(thunk
-                    (multiple-value-prog1 (values ,@values)
-                      (,msetf ,@assignments))))))))))))
+      (if (not (null assignments))
+          ;; Hairy general case with assignments and special initial state
+          (with-names (<initially>)
+            `(,bind ((,<initially> t) ,@bindings)
+               (declare ,@tds)
+               (values
+                (thunk
+                  ;; Step if not initial, and then test
+                  (if ,<initially>
+                      (setf ,<initially> nil)
+                    (,msetf ,@assignments))
+                  ,(case (length tests)
+                     (0 t)
+                     (1 (first tests))
+                     (t `(and ,@tests))))
+                ,(case (length values)
+                   (0
+                    '#'values)
+                   (1
+                    `(thunk ,(first values)))
+                   (otherwise
+                    `(thunk (values ,@values)))))))
+        ;; No assignments, so much simpler
+        `(,bind ,bindings
+           (declare ,@tds)
+           (values
+            ,(case (length tests)
+               (0
+                '(constantly t))
+               (1
+                `(thunk ,(first tests)))
+               (otherwise
+                `(thunk (and ,@tests))))
+            ,(case (length values)
+               (0
+                '#'values)
+               (1
+                `(thunk ,(first values)))
+               (otherwise
+                `(thunk (values ,@values))))))))))
 
 (defmacro stepping (&rest clauses)
   "Iterator which can step multiple variables in parallel
@@ -561,12 +562,12 @@ See the manual.  Optimizable."
   (expand-stepping clauses t))
 
 (defun optimize-stepping (form environment stack starred)
-  ;; The guts of the stepping / stepping* optimizer
-  ;; The trick here is to establish bindings of the variables named in
-  ;; the clauses around the various update forms.  This means that
-  ;; explicit assignments to those bindings get lost, which will be
-  ;; documented.  This is allowed to be true also, for instance, for
-  ;; DOTIMES, so this is hardly a limitation.
+  ;; The guts of the stepping / stepping* optimizer The trick here is
+  ;; to establish bindings of the variables named in the clauses
+  ;; around the various update forms.  This means that explicit
+  ;; assignments to those bindings get lost, which is documented.
+  ;; This is allowed to be true also, for instance, for DOTIMES, so
+  ;; this is hardly a limitation.
   (declare (ignore environment stack))
   (multiple-value-bind (public-vars secret-vars inits values ptds stds tests thens)
       (with-collectors (public-var secret-var init value ptd std test then)
@@ -613,52 +614,87 @@ See the manual.  Optimizable."
     (let ((public-type-declarations (if (not (null ptds))
                                         `((declare ,@ptds))
                                       ()))
-          (public-ignorable-declarations (if (not (null public-vars))
-                                             `((declare (ignorable ,@public-vars)))
-                                           '()))
+          (ignorable-declarations/assignments (if (and (not (null public-vars))
+                                                       (not starred))
+                                                  `((declare (ignorable ,@public-vars)))
+                                                '()))
+          (ignorable-declarations/otherwise (if (not (null public-vars))
+                                                `((declare (ignorable ,@public-vars)))
+                                              '()))
           (secret-declarations (if (not (null stds))
                                    `((declare ,@stds))
                                  '()))
           (rebindings (mapcar #'list public-vars secret-vars)))
-      (values
-       t
-       (if (not (null secret-vars))
-           (if starred
-               `((,secret-vars (let* ,(mapcar #'list public-vars inits)
-                                 ,@public-type-declarations
-                                 (values ,@public-vars))
-                               ,@secret-declarations))
-             `((,secret-vars (values ,@inits) ,@secret-declarations)))
-         '())
-       (case (length tests)
-         (0 t)
-         (1 `(let ,rebindings
-               ,@public-type-declarations
-               ,@public-ignorable-declarations
-               ,(first tests)))
-         (otherwise `(let ,rebindings
-                       ,@public-type-declarations
-                       ,@public-ignorable-declarations
-                       (and ,@tests))))
-       (if starred
-           `(let ,rebindings
-              ,@public-type-declarations
-              (multiple-value-prog1 ,(case (length values)
-                                       (1 (first values))
-                                       (otherwise `(values ,@values)))
-                ,@(if (not (null thens))
-                      `((setf ,@(mapcan #'copy-list thens)))
-                    '())))
-         `(let ,rebindings
-            ,@public-type-declarations
-            ,@public-ignorable-declarations
-            ,@(if (not (null thens))
-                  `((setf ,@(mapcan #'copy-list thens)))
-                '())
-            ,(case (length values)
-               (1 (first values))
-               (otherwise `(values ,@values)))))
-       nil))))
+      (if (not (null public-vars))
+          ;; there are variables, so not degenerate case
+          (if (not (null thens))
+              ;; General case with assignments and special initial case
+              (with-names (<initially>)
+                (values
+                 t
+                 `(((,<initially>) t)
+                   ,(if starred
+                        `(,secret-vars (let* ,(mapcar #'list public-vars inits)
+                                         ,@public-type-declarations
+                                         (values ,@public-vars))
+                                       ,@secret-declarations)
+                      `(,secret-vars (values ,@inits) ,@secret-declarations)))
+                 `(progn
+                    (if ,<initially>
+                        (setf ,<initially> nil)
+                      (let ,rebindings
+                        ,@public-type-declarations
+                        ,@ignorable-declarations/assignments
+                        (setf ,@(mapcan #'copy-list thens))))
+                    ,(case (length tests)
+                       (0 t)
+                       (1
+                        `(let ,rebindings
+                           ,@public-type-declarations
+                           ,@ignorable-declarations/otherwise
+                           ,(first tests)))
+                       (otherwise
+                        `(let ,rebindings
+                           ,@public-type-declarations
+                           ,@ignorable-declarations/otherwise
+                           (and ,@tests)))))
+                 `(let ,rebindings
+                    ,@public-type-declarations
+                    ,@ignorable-declarations/otherwise
+                    ,(case (length values)
+                       (1 (first values))
+                       (otherwise `(values ,@values))))
+                 nil))
+            ;; There are no assignments
+            (values
+             t
+             (if starred
+                 `((,secret-vars (let* ,(mapcar #'list public-vars inits)
+                                    ,@public-type-declarations
+                                          (values ,@public-vars))
+                                  ,@secret-declarations))
+               `((,secret-vars (values ,@inits) ,@secret-declarations)))
+             (case (length tests)
+               (0 t)
+               (1
+                `(let ,rebindings
+                   ,@public-type-declarations
+                   ,@ignorable-declarations/otherwise
+                   ,(first tests)))
+               (otherwise
+                `(let ,rebindings
+                   ,@public-type-declarations
+                   ,@ignorable-declarations/otherwise
+                   (and ,@tests))))
+             `(let ,rebindings
+                ,@public-type-declarations
+                ,@ignorable-declarations/otherwise
+                ,(case (length values)
+                   (1 (first values))
+                   (otherwise `(values ,@values))))
+             nil))
+        ;; Degenerate case: no variables
+        (values t '() t '(values) nil)))))
 
 (define-iterator-optimizer (stepping *builtin-iterator-optimizer-table*) (form environment stack)
   (optimize-stepping form environment stack nil))
@@ -692,27 +728,46 @@ See the manual.  Optimizable."
     (star-syntax-error form "variables specification is not a list of symbols"))
   (when (and asp (or initiallyp thenp))
     (star-syntax-error form "can't have both AS and INITIALLY / THEN"))
-  `(multiple-value-bind ,vars ,initially
-     ,@(if typesp
-           `((declare ,@(mapcar (lambda (type var)
-                                  `(type ,type ,var))
-                                types vars)))
-         '())
-     (values
-      ,(cond
-        ((and whilep untilp)
-         `(thunk (and ,while (not ,until))))
-        (whilep
-         `(thunk ,while))
-        (untilp
-         `(thunk (not ,until)))
-        (t
-         '(constantly t)))
-      ,(if (or thenp asp)
-           `(thunk
-              (multiple-value-prog1 ,values
-                (multiple-value-setq ,vars ,then)))
-         `(thunk ,values)))))
+  (if (or thenp asp)
+      ;; General case with assignments and initial state
+    (with-names (<initially>)
+      `(let ((,<initially> t))
+         (multiple-value-bind ,vars ,initially
+           ,@(if typesp
+                 `((declare ,@(mapcar (lambda (type var)
+                                        `(type ,type ,var))
+                                      types vars)))
+               '())
+           (values
+            (thunk
+              ;; Step if not initial, and then test
+              (if ,<initially>
+                  (setf ,<initially> nil)
+                (multiple-value-setq ,vars ,then))
+              ,(cond
+                ((and whilep untilp) `(and ,while (not ,until)))
+                (whilep while)
+                (until `(not ,until))
+                (t t)))
+            (thunk ,values)))))
+    ;; No assignments
+    `(multiple-value-bind ,vars ,initially
+       ,@(if typesp
+             `((declare ,@(mapcar (lambda (type var)
+                                    `(type ,type ,var))
+                                  types vars)))
+           '())
+       (values
+        ,(cond
+          ((and whilep untilp)
+           `(thunk (and ,while (not ,until))))
+          (whilep
+           `(thunk ,while))
+          (untilp
+           `(thunk (not ,until)))
+          (t
+           '(constantly t)))
+        (thunk ,values)))))
 
 (define-iterator-optimizer (stepping-values *builtin-iterator-optimizer-table*) (form)
   (destructuring-match form
@@ -745,29 +800,51 @@ See the manual.  Optimizable."
                                                           types vars))
                                        (declare (ignorable ,@vars)))
                                    `((declare (ignorable ,@vars))))))
-       (values
-        t
-        (if (not (null secret-vars))
-            `((,secret-vars ,initially ,@secret-declarations))
-          '())
-        (if (or whilep untilp)
-            `(let ,rebindings
-               ,@public-declarations
-               ,(cond
-                 ((and whilep untilp)
-                  `(and ,while (not ,until)))
-                 (whilep
-                  while)
-                 (untilp
-                  `(not ,until))))
-          t)
-        `(let ,rebindings
-           ,@public-declarations
-           ,(if (or thenp asp)
-                `(multiple-value-prog1 ,values
-                   (multiple-value-setq ,secret-vars ,then))
-              values))
-        nil)))
+       (if (not (null vars))
+           ;; Not degenerate case
+           (if (or thenp asp)
+               ;; General case with assignments and special initial state
+               (with-names (<initially>)
+                 (values
+                  t
+                  `(((,<initially>) t)
+                    (,secret-vars ,initially ,@secret-declarations))
+                  `(progn
+                     (if ,<initially>
+                         (setf ,<initially> nil)
+                       (let ,rebindings
+                         ,@public-declarations
+                         (multiple-value-setq ,secret-vars ,then)))
+                     ,(if (not (or whilep untilp))
+                          t
+                        `(let ,rebindings
+                           ,@public-declarations
+                           ,(cond
+                             ((and whilep untilp) `(and ,while (not ,until)))
+                             (whilep while)
+                             (untilp `(not ,until))))))
+                  `(let ,rebindings
+                     ,@public-declarations
+                     ,values)
+                  nil))
+             ;; No assignments
+             (values
+              t
+              `((,secret-vars ,initially ,@secret-declarations))
+              (if (not (or whilep untilp))
+                  t
+                `(let ,rebindings
+                   ,@public-declarations
+                   ,(cond
+                     ((and whilep untilp) `(and ,while (not ,until)))
+                     (whilep while)
+                     (untilp `(not ,until)))))
+              `(let ,rebindings
+                 ,@public-declarations
+                 ,values)
+              nil))
+         ;; Degenerate
+         (values t '() '(values) nil))))
     (otherwise
      (star-syntax-error form "bad stepping-values syntax"))))
 
