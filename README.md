@@ -555,6 +555,25 @@ a 18 b 19
 nil
 ```
 
+In `stepping` and `stepping*` there is a question of what a form like
+
+```lisp
+(for ((s (stepping* (l :initially '(1 2 3) :then (rest l)
+                       :until (null l) :value nil)
+                    (s :initially (first l) :then (+ s (first l))))))
+  ...)
+```
+
+should do, and in particular whether, after `l` becomes null, does `s` still get updated, causing an error?  There were versions of these macros which made this safe, but the performance cost, at least in the implementation I came up with, was almost a factor of two.  Notably, `do` and `do*` do *not* interleave the end test this way, so
+
+```lisp
+(do* ((l '(1 2 3) (rest l))
+      (s (first l) (+ s (first l))))
+     ((null l) s))
+```
+
+will signal an error.  So after some thought I have changed `stepping` and `stepping*` to behave like this as well: the termination tests happen *after* the updates, compatibly with `do` and `do*`.
+
 `stepping-values` is conceptually similar to `stepping` but it steps a single set of multiple values.  Its syntax is `(stepping-values vars &key initially then types values while until)`, or `(stepping-values vars &key as types values while until)`.
 
 - `vars` is a list of variables to step.
