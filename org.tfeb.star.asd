@@ -62,4 +62,25 @@
   ((:file "pkg")
    (:file "preamble")
    (:file "simple")
+   (:file "unrolled")
    (:file "collecting")))
+
+(defsystem "org.tfeb.star/unroll"
+  :description "Experimental unrolling support for Štar"
+  :version (:read-file-line "VERSION")
+  :author "Tim Bradshaw"
+  :license "MIT"
+  :homepage "https://github.com/tfeb/star"
+  :depends-on ("org.tfeb.star"
+               "org.tfeb.conduit-packages/define-package"
+               "org.tfeb.hax.utilities"
+               "org.tfeb.hax.let-values"
+               "org.tfeb.dsm"
+               "org.tfeb.hax.collecting"
+               "org.tfeb.hax.iterate")
+  :pathname "unroll/"
+  :serial t
+  :components
+  ((:file "pkg")
+   (:file "unroll")
+   (:file "rolled")))

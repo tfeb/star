@@ -27,7 +27,8 @@
    #:star-syntax-error
    #:star-syntax-error-form
    #:star-note
-   #:reporting-star-notes))
+   #:reporting-star-notes
+   #:anonymous-variable-p))
 
 (define-package :org.tfeb.star/iterator-optimizer-protocol
   (:documentation "Štar iterator optimizer protocol")

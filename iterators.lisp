@@ -296,13 +296,14 @@ Optimizable."
 (deftype array-dim ()
   `(integer 0 ,array-dimension-limit))
 
-(defun in-vector (v &key (element-type 't) (simple nil))
+(defun in-vector (v &key (element-type 't) (simple nil) (by 1))
   "Iterate over indices and values of a vector
 
 ELEMENT-TYPE is the element type, SIMPLE says the  vector is simple.
 
 Optimizable."
-  (declare (type vector v))
+  (declare (type vector v)
+           (type fixnum by))
   (when (and simple (not (eql element-type 't)))
     (warn "element-type not T when vector is simple (but nothing cares)"))
   (let ((l (length v))
@@ -314,56 +315,59 @@ Optimizable."
      (if simple
          (thunk
            (multiple-value-prog1 (values (svref v i) i)
-             (incf i)))
+             (incf i by)))
        (thunk
          (thunk
            (multiple-value-prog1 (values (aref v i) i)
-             (incf i))))))))
+             (incf i by))))))))
 
 (define-iterator-optimizer (in-vector *builtin-iterator-optimizer-table*) (form)
   (destructuring-match form
-    ((_ vector &key (element-type 't) (simple 'nil))
+    ((_ vector &key (element-type 't element-type-p) (simple 'nil) (by 1))
      (let-values (((element-type element-type-literal) (literal element-type))
                   ((simple simple-literal) (literal simple)))
-       (when (and simple-literal simple element-type-literal (not (eql element-type t)))
+       (when (and simple-literal simple element-type-p (not (eql element-type t)))
          (warn "ignoring element-type for simple array"))
        (cond
         ((and simple-literal simple)
-         (with-names (<v> <l> <i>)
+         (with-names (<v> <l> <i> <s>)
            (values
             t
             ;; bind the vector then its indices
-            `(((,<v>) ,vector
-               (declare (type simple-vector ,<v>)))
+            `(((,<v> ,<s>) (values ,vector ,by)
+               (declare (type simple-vector ,<v>)
+                        (type fixnum ,<s>)))
               ((,<l> ,<i>) (values (length ,<v>) 0)
                (declare (type array-dim ,<l> ,<i>))))
             `(< ,<i> ,<l>)
             `(multiple-value-prog1 (values (svref ,<v> ,<i>) ,<i>)
-               (incf ,<i>)))))
-        (element-type-literal
-         (with-names (<v> <l> <i>)
+               (incf ,<i> ,<s>)))))
+        ((and element-type-p element-type-literal)
+         (with-names (<v> <l> <i> <s>)
            (values
             t
             ;; bind the vector then its indices
-            `(((,<v>) ,vector
-               (declare (type (vector ,element-type) ,<v>)))
+            `(((,<v> ,<s>) (values ,vector ,by)
+               (declare (type (vector ,element-type) ,<v>)
+                        (type fixnum ,<s>)))
               ((,<l> ,<i>) (values (length ,<v>) 0)
                (declare (type array-dim ,<l> ,<i>))))
             `(< ,<i> ,<l>)
             `(multiple-value-prog1 (values (aref ,<v> ,<i>) ,<i>)
-               (incf ,<i>)))))
+               (incf ,<i> ,<s>)))))
         (t
-         (with-names (<v> <l> <i>)
+         (with-names (<v> <l> <i> <s>)
            (values
             t
             ;; bind the vector then its indices
-            `(((,<v>) ,vector
-               (declare (type vector ,<v>)))
+            `(((,<v> ,<s>) (values ,vector ,by)
+               (declare (type vector ,<v>)
+                        (type fixnum ,<s>)))
               ((,<l> ,<i>) (values (length ,<v>) 0)
                (declare (type array-dim ,<l> ,<i>))))
             `(< ,<i> ,<l>)
             `(multiple-value-prog1 (values (aref ,<v> ,<i>) ,<i>)
-               (incf ,<i>))))))))
+               (incf ,<i> ,<s>))))))))
     (otherwise
      nil)))
 

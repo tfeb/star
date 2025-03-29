@@ -25,6 +25,7 @@ At the time of writing, Štar itself is probably fairly complete.  The predefine
 - [Some useful things](#some-useful-things)
 	- [Errors](#errors)
 	- [Compilation notes](#compilation-notes)
+	- [Miscellany](#miscellany)
 - [Packages](#packages)
 - [Predefined iterators](#predefined-iterators)
 	- [Simple numeric iteration: in-naturals](#simple-numeric-iteration-in-naturals)
@@ -40,6 +41,11 @@ At the time of writing, Štar itself is probably fairly complete.  The predefine
 	- [org.tfeb.\*](#orgtfeb)
 	- [org.tfeb.star/iterators](#orgtfebstariterators)
 	- [org.tfeb.star](#orgtfebstar)
+- [An extension: loop unrolling](#an-extension-loop-unrolling)
+	- [The unroller protocol](#the-unroller-protocol)
+	- [Unrolling itself](#unrolling-itself)
+	- [An example unroller](#an-example-unroller)
+	- [Notes on unrolling](#notes-on-unrolling)
 - [Notes](#notes)
 
 ## Overview
@@ -434,6 +440,9 @@ There is a subclass of `star-error` called `star-syntax-error` which is for synt
 
 for instance.
 
+### Miscellany
+**`anonymous-variable-p`** returns true if a symbol names a variable that Štar would consider anonymous.  It avoids programs which want to process clauses having to second-guess this.
+
 ## Packages
 The system is structured so that you can pick and choose which bits you want, starting from something extremely minimal.
 
@@ -650,12 +659,12 @@ These are iterators which iterate over things like other iterators, or functions
 This is a list of which public packages export what.
 
 ### `org.tfeb.star/utilities`
+- `anonymous-variable-p`
 - `reporting-star-notes`
 - `star-error`
 - `star-note`
 - `star-syntax-error`
 - `star-syntax-error-form`
-
 ### `org.tfeb.star/iterator-optimizer-protocol`
 - `*enable-iterator-optimizers*`
 - `*iterator-optimizers*`
@@ -665,7 +674,6 @@ This is a list of which public packages export what.
 - `make-iterator-optimizer-table`
 - `map-iterator-optimizer-table`
 - `remove-iterator-optimizer`
-
 ### `org.tfeb.*`
 - `final`
 - `final*`
@@ -673,7 +681,6 @@ This is a list of which public packages export what.
 - `for*`
 - `next`
 - `next*`
-
 ### `org.tfeb.star/iterators`
 - `always`
 - `cyclically`
@@ -694,13 +701,13 @@ This is a list of which public packages export what.
 - `stepping`
 - `stepping*`
 - `stepping-values`
-
 ### `org.tfeb.star`
 This is a conduit for the above four packages.
 
 - `*enable-iterator-optimizers*`
 - `*iterator-optimizers*`
 - `always`
+- `anonymous-variable-p`
 - `cyclically`
 - `cyclically-calling`
 - `define-iterator-optimizer`
@@ -737,10 +744,122 @@ This is a conduit for the above four packages.
 - `stepping*`
 - `stepping-values`
 
+## An extension: loop unrolling
+There is a somewhat experimental layer above Štar which allows loop unrolling.  This is done by a mechanism analogous to iterator optimizers: you can define an *unroller* for an iterator, which is a function which tells the system how to rewrite the iterator to use bigger steps, and what code to insert into the body of the loop.
+
+As an example, if you defined a loop unroller for [`in-vector`](#vectors-and-general-sequences-in-vector-in-sequence "Vectors and general sequences: in-vector, in-sequence") and ask for the loop to be unrolled 4 times, then
+
+```lisp
+(for ((e (in-vector v)))
+  (f e))
+```
+
+is turned into something like this
+
+```lisp
+(let ((<v> v)
+      (<i> 0))
+  (for ((e (in-vector <v> :by 4)))
+    (f e)
+    (setf e (aref <v> (incf <i>)))
+    (f e)
+    (setf e (aref <v> (incf <i>)))
+    (f e)
+    (setf e (aref <v> (incf <i>)))
+    (f e)))
+```
+
+where the variables with names in \<angle brackets\> are gensyms of course.
+
+Loop unrolling is *unsafe* in general you are responsible for ensuring that the length of `v` is, in fact, a multiple of 4 in the above code: it won't do that for you.
+
+The idea of loop unrolling is to reduce the number of branches and tests in the code.  In practice it seems that modern processors are really good at branch prediction and also pretty good at making simple tests very quick (`(< a b)` where `a` and `b` are some good numeric type, say).  So loop unrolling, at least as implemented here, doesn't make things much better.
+
+Loop unrolling is, however, an example of just how flexible Lisp is: implementing it entirely in user code is something that would be an interesting challenge in other languages: in Lisp it's 361 lines and took about 3 hours to write.  And Štar was intentionally designed to make this sort of thing easy: implementing loop unrolling for `loop` would not be easy.
+
+Loop unrolling lives in a system & package called `org.tfeb.star/unroll`: this extends `org.tfeb.star`, so it includes everything that package exports, except that `for` is a different symbol.
+
+### The unroller protocol
+The unroller protocol is very like the [iterator optimizer protocol](#iterator-optimizers "Iterator optimizers") and consists of the following.
+
+**`make-iterator-unroller-table`**  makes an iterator unroller table analogous to `make-iterator-optimizer-table`.
+
+**`*iterator-unrollers*`** is the stack of unroller tables.  There's no builtin table, unlike with optimizers.
+
+**`get-iterator-unroller`** gets an unroller from a table.  It is an accessor.
+
+**`remove-iterator-unroller`** removes an unroller from a table.
+
+**`find-iterator-unroller`** finds an unroller in the stack, and returns it and the stack from the table where it's found.
+
+**`define-iterator-unroller`** defines iterator unrollers.  It's very like [`define-iterator-optimizer`](#defining-iterator-optimizers-define-iterator-optimizer "Defining iterator optimizers: define-iterator-optimizer"), including the specification of which table to define the unroller in, and the optional environment and stack arguments.  The mandatory arguments are
+
+- `form`, the iterator form to be unrolled;
+- `vars`, a list of variables on the left-hand-side of the iterator.  Any element of this list may be `nil` if the variable is anonymous.
+- `unroll-by`, how many times to unroll by.
+
+The unroller should return four values:
+
+- whether the iterator is unrollable;
+- a list of binding sets for secret variables, if any;
+- the new iterator form;
+- a list of lists of forms which will be inserted between the stages of the unrolled loop, which should have one less element than `unroll-by` argument.
+
+### Unrolling itself
+**`*enable-unrolling*`** should be true to enable unrolling by `for`.  `for/unroll` always unrolls.  This variable matters at macroexpansion time.
+
+**`*unroll-by*`** is how many times to unroll.  The default is `4`, and again this matters at macroexpansion time.
+
+**`for`** is Štar's `for`, but will unroll if possible when `*enable-unrolling*` is true.
+
+**`for/unroll`** is `for`, but it always tries to unroll.
+
+Finally **`rolled`** can be wrapped around any iterator to prevent it being unrolled.
+
+### An example unroller
+Here is a rudimentary unroller for [`in-vector`](#vectors-and-general-sequences-in-vector-in-sequence "Vectors and general sequences: in-vector, in-sequence").  This may not be completely correct.
+
+```lisp
+(define-iterator-unroller in-vector (form vars unroll-by)
+  (destructuring-match form
+    ((iv v &rest kws &key (by 1 byp) &allow-other-keys)
+     (:when (not byp))
+     (declare (ignore by))
+     (destructuring-match vars
+       ((e)
+        (:when e)
+        (with-names (<v> <i>)
+          (values
+           t
+           `(((,<v> ,<i>) (values ,v 0)
+              (declare (type vector ,<v>)
+                       (type fixnum ,<i>))))
+           `(,iv ,<v> :by ,unroll-by ,@kws)
+           (make-list (1- unroll-by) :initial-element
+                      `((setf ,e (aref ,<v> (incf ,<i>))))))))
+       ((i e)
+        (:when (and i e))
+        (with-names (<v>)
+          (values
+           t
+           `(((,<v>) ,v
+              (declare (type vector ,<v>))))
+           `(,iv ,<v> :by ,unroll-by ,@kws)
+           (make-list (1- unroll-by) :initial-element
+                      `((setf ,e (aref ,<v> (incf ,i))))))))
+       (otherwise
+        (values nil nil nil nil))))
+    (otherwise
+     (values nil nil nil nil))))
+```
+
+### Notes on unrolling
+To unroll a loop all its iterators need to be unrollable.  There is no unrollable equivalent to `for*`.  There are no predefined iterator unrollers.  In practice unrolling does not significantly help performance.  Unrolling is not very heavily tested, and is unsafe by design.
+
 ---
 
 ## Notes
-Štar itself is, I think, pretty stable.  The iterators are far less stable.  `in-range`, in particular, is always going to exist but might change in significant ways.
+Štar itself is, I think, pretty stable.  The iterators are far less stable.
 
 The public git repo for Štar only reflects major changes: the detailed history is not generally visible.
 
@@ -751,7 +870,6 @@ Much of the inspiration for Štar came from my friend Zyni: thanks to her for th
 Štar is dedicated to her, and to Ian Anderson.
 
 ---
-
 
 [^1]:	See *[Something unclear in the Common Lisp standard](https://tfeb.org/fragments/2023/04/18/something-unclear-in-the-common-lisp-standard/ "Something unclear in the Common Lisp standard")* for a case where this same question applies to CL itself.
 

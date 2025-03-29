@@ -599,13 +599,13 @@ See the manual"
                       ,<end>
                       nil)))))))))))
 
-(defmacro for (clauses &body body &environment environment)
+(defmacro for ((&rest clauses) &body body &environment environment)
   "Iteration construct
 
 See the manual."
   (expand-for clauses body environment))
 
-(defmacro for* (clauses &body body &environment environment)
+(defmacro for* ((&rest clauses) &body body &environment environment)
   "Nested iteration construct
 
 See the manual."
