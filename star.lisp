@@ -157,10 +157,14 @@ See the manual"
 
 (defun iterator-optimizers (iterator environment)
   ;; Return found values which explain how to optimize an iterator: a
-  ;; list of binding sets, a valid form a cursor form and a wrapper, or NIL
-  (flet ((fallback-optimizers (valid-name cursor-name)
+  ;; list of binding sets, a valid form a cursor form and a wrapper.
+  ;; In the case where there is no optimizer return built-in versions
+  (flet ((fallback-optimizers (valid-name cursor-name
+                               &optional note &rest reasons)
            ;; Note this only returns three forms, because it's the
            ;; fallback: it can't decline to handle it.
+           (when note
+             (apply #'star-note note reasons))
            (values
             ;; binding set
             `(((,valid-name ,cursor-name)
@@ -173,26 +177,28 @@ See the manual"
             ;; no wrapper
             nil)))
     (destructuring-match iterator
-      ((f &rest _)
-       (:when (symbolp f))
-       (if *enable-iterator-optimizers*
-           (multiple-value-bind (found stack) (find-iterator-optimizer f)
-             (if found
-                 (multiple-value-bind (handled binding-sets valid cursor wrapper)
-                     (funcall found iterator environment stack)
-                   (if handled
-                       (values binding-sets valid cursor wrapper)
-                     (fallback-optimizers
-                      (make-symbol (format nil "~A-VALID" (symbol-name f)))
-                      (make-symbol (format nil "~A-CURSOR" (symbol-name f))))))
-               (fallback-optimizers
-                (make-symbol (format nil "~A-VALID" (symbol-name f)))
-                (make-symbol (format nil "~A-CURSOR" (symbol-name f))))))
-         (fallback-optimizers
-          (make-symbol (format nil "~A-VALID" (symbol-name f)))
-          (make-symbol (format nil "~A-CURSOR" (symbol-name f))))))
-      (otherwise
-       (fallback-optimizers (make-symbol "VALID") (make-symbol "CURSOR"))))))
+                         ((f &rest _)
+                          (:when (symbolp f))
+                          (if *enable-iterator-optimizers*
+                              (multiple-value-bind (found stack) (find-iterator-optimizer f)
+                                (if found
+                                    (multiple-value-bind (handled binding-sets valid cursor wrapper)
+                                        (funcall found iterator environment stack)
+                                      (if handled
+                                          (values binding-sets valid cursor wrapper)
+                                        (fallback-optimizers
+                                         (make-symbol (format nil "~A-VALID" (symbol-name f)))
+                                         (make-symbol (format nil "~A-CURSOR" (symbol-name f)))
+                                         "optimizer for ~S rejected ~S" f iterator)))
+                                  (fallback-optimizers
+                                   (make-symbol (format nil "~A-VALID" (symbol-name f)))
+                                   (make-symbol (format nil "~A-CURSOR" (symbol-name f)))
+                                   "no optimizer for ~S" f)))
+                              (fallback-optimizers
+                               (make-symbol (format nil "~A-VALID" (symbol-name f)))
+                               (make-symbol (format nil "~A-CURSOR" (symbol-name f))))))
+                         (otherwise
+                          (fallback-optimizers (make-symbol "VALID") (make-symbol "CURSOR"))))))
 
 ;;;; Štar itself
 ;;;
