@@ -47,6 +47,7 @@ At the time of writing, Štar itself is probably fairly complete.  The predefine
 	- [Unrolling itself](#unrolling-itself)
 	- [An example unroller](#an-example-unroller)
 	- [Notes on unrolling](#notes-on-unrolling)
+- [An approximate version history](#an-approximate-version-history)
 - [Notes](#notes)
 
 ## Overview
@@ -270,7 +271,7 @@ Now you get the index as well as the character:
 Both `for` and `for*` return `nil` unless values are returned by `final` or `final*`.
 
 ## Declaration handling
-The first version of Štar made no attempt to do anything smart with declarations, relying instead on the fancy variable form.  This version now uses my `process-declarations` hack to work out which declarations in a form apply to which variables and to raise them to the appropriate place.  Štar treats a bound variable declaration as applying to all variables with the given name[^1].  This doesn't matter for `for`, but it does for `for*`, since bindings may be repeated.  Thus in a form like
+The first version of Štar made no attempt to do anything smart with declarations, relying instead on the fancy variable form.  [Version 2](#an-approximate-version-history "An approximate version history") and later use my `process-declarations` hack to work out which declarations in a form apply to which variables and to raise them to the appropriate place.  Štar treats a bound variable declaration as applying to all variables with the given name[^1].  This doesn't matter for `for`, but it does for `for*`, since bindings may be repeated.  Thus in a form like
 
 ```lisp
 (for* ((a (in-range 10))
@@ -289,7 +290,9 @@ The `fixnum` declaration applies to both bindings of `a`.  If you want it to app
 
 It's rather hard to think of cases where this might actually be useful, but the facility is still there.
 
-From version 4, iterator optimizers can implicitly specify the types of the variables which will be bound to their values.  `*obey-iterator-optimizer-types*` gives control over this at macroexpansion time.
+From [version 5](#an-approximate-version-history "An approximate version history"), iterator optimizers can implicitly specify the types of the variables which will be bound to their values.  `*obey-iterator-optimizer-types*` gives control over this at macroexpansion time.
+
+Don't assign to bound iteration variables: they may have type restriction you don't know and perhaps, one day, they will not even be variables.
 
 ## Iterator optimizers
 The protocol described here is exported by `org.tfeb.star/iop` and `org.tfeb.star`.
@@ -482,7 +485,7 @@ See [below](#package-exports "Package exports") for an exhaustive list of what e
 ## Predefined iterators
 All of these are exported by `org.tfeb.star/iterators` and `org.tfeb.star`.
 
-These are in a *much* more rudimentary state than Štar itself: many were written before it was finished, as proofs of concept, or both.  The list below may change significantly (and has done so in version 3).
+These are in a *much* more rudimentary state than Štar itself: many were written before it was finished, as proofs of concept, or both.  The list below may change significantly (and has done so in [version 3](#an-approximate-version-history "An approximate version history")).
 
 ### Simple numeric iteration: `in-naturals`
 `in-naturals` iterates over the natural numbers: integers greater than or equal to zero.  It has two simple forms:
@@ -883,6 +886,18 @@ To unroll a loop all its iterators need to be unrollable.  There is no unrollabl
 
 ---
 
+## An approximate version history
+
+| version | date              | commentary                                                                                                                                        |
+| ------: | :---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 5       | 24th April 2025   | Iterator optimizers can provide type information for visible bindings                                                                             |
+| 4       | 29th March 2025   | Experimental loop unrolling                                                                                                                       |
+| 3       | 30th January 2025 | Abolish `in-range`: `in-naturals` does most of the useful things it did, `stepping` &c have optimizers and can be used for more complicated cases |
+| 2       | 9th January 2025  | Much better declaration handling                                                                                                                  |
+| 1       | 17th June 2024    | Initial public version                                                                                                                            |
+[Version history]
+
+
 ## Notes
 Štar itself is, I think, pretty stable.  The iterators are far less stable.
 
@@ -890,9 +905,7 @@ The public git repo for Štar only reflects major changes: the detailed history 
 
 Štar is pronounced roughly 'shtar'.  The sources are UTF-8 encoded: you will need a unicode-competent system to load it.  It's time.
 
-Much of the inspiration for Štar came from my friend Zyni: thanks to her for the ideas behind it, actually making me write it and for many other things.
-
-Štar is dedicated to her, and to Ian Anderson.
+Much of the inspiration for Štar came from my friend Zyni: thanks to her for the ideas behind it, actually making me write it and for many other things.  Štar is dedicated to her, and to Ian Anderson.
 
 ---
 
