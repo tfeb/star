@@ -895,8 +895,6 @@ To unroll a loop all its iterators need to be unrollable.  There is no unrollabl
 | 3       | 30th January 2025 | Abolish `in-range`: `in-naturals` does most of the useful things it did, `stepping` &c have optimizers and can be used for more complicated cases |
 | 2       | 9th January 2025  | Much better declaration handling                                                                                                                  |
 | 1       | 17th June 2024    | Initial public version                                                                                                                            |
-[Version history]
-
 
 ## Notes
 Štar itself is, I think, pretty stable.  The iterators are far less stable.
