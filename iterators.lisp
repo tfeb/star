@@ -135,7 +135,7 @@ Optimizable."
                 `(((,<v>) 0 (declare (type ,integer-type ,<v>))))
                 `(,test ,<v> ,b)
                 `(prog1 ,<v> (incf ,<v>))
-                nil))))
+                `(:types (,integer-type))))))
           (b-literal
            (star-note "INCLUSIVE ~S is not literal so compiling runtime test" i)
            (with-names (<v> <i>)
@@ -144,7 +144,7 @@ Optimizable."
               `(((,<v> ,<i>) (values 0 ,i) (declare (type ,integer-type ,<v>))))
               `(if ,<i> (<= ,<v> ,b) (< ,<v> ,b))
               `(prog1 ,<v> (incf ,<v>))
-              nil)))
+              `(:types (,integer-type)))))
           (i-literal
            (let ((test (if i '<= '<)))
              (with-names (<v> <b>)
@@ -153,7 +153,7 @@ Optimizable."
               `(((,<v> ,<b>) (values 0 ,b) (declare (type ,integer-type ,<v> ,<b>))))
               `(,test ,<v> ,<b>)
               `(prog1 ,<v> (incf ,<v>))
-              nil))))
+              `(:types (,integer-type))))))
           (t
            (star-note "INCLUSIVE ~S is not literal so compiling runtime test" i)
            (with-names (<v> <b> <i>)
@@ -162,7 +162,7 @@ Optimizable."
               `(((,<v> ,<b> ,<i>) (values 0 ,b ,i) (declare (type ,integer-type ,<v> ,<b>))))
               `(if ,<i> (<= ,<v> ,<b>) (< ,<v> ,<b>))
               `(prog1 ,<v> (incf ,<v>))
-              nil)))))))
+              `(:type (,integer-type)))))))))
     (otherwise
      (star-syntax-error form "bad in-naturals form"))))
 

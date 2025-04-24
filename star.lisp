@@ -22,7 +22,9 @@
 ;;; - a list of binding sets (see below)
 ;;; - a form which returns true if the cursor is valid
 ;;; - the cursor, which returns the next values
-;;; - a wrapper function, or NIL which is called with the entire form
+;;; - additional information, which may be:
+;;;   - a designator for a wrapper function which is which is called with the entire form
+;;;   - a plist with keys :WRAPPER and :TYPES and possibly other keys
 ;;;
 ;;; A binding set is a list of two or more elements:
 ;;; - variables to bind (for MULTIPLE-VALUE-BIND)
@@ -57,6 +59,9 @@ support that"
 
 (defvar *enable-iterator-optimizers* t
   "If true, iterator optimizers will be called at macroexpansion time")
+
+(defvar *obey-iterator-optimizer-types* t
+  "If true, type information from iterator optimizers will be interpolated")
 
 (defun remove-iterator-optimizer (name table)
   "Remove an optimizer named NAME from TABLE
@@ -157,8 +162,9 @@ See the manual"
 
 (defun iterator-optimizers (iterator environment)
   ;; Return found values which explain how to optimize an iterator: a
-  ;; list of binding sets, a valid form a cursor form and a wrapper.
-  ;; In the case where there is no optimizer return built-in versions
+  ;; list of binding sets, a valid form a cursor form and additional
+  ;; information.  In the case where there is no optimizer return
+  ;; built-in versions
   (flet ((fallback-optimizers (valid-name cursor-name
                                &optional note &rest reasons)
            ;; Note this only returns three forms, because it's the
@@ -174,7 +180,7 @@ See the manual"
             `(funcall ,valid-name)
             ;; form returning values
             `(funcall ,cursor-name)
-            ;; no wrapper
+            ;; no additional
             nil)))
     (destructuring-match iterator
                          ((f &rest _)
@@ -182,10 +188,11 @@ See the manual"
                           (if *enable-iterator-optimizers*
                               (multiple-value-bind (found stack) (find-iterator-optimizer f)
                                 (if found
-                                    (multiple-value-bind (handled binding-sets valid cursor wrapper)
+                                    (multiple-value-bind
+                                        (handled binding-sets valid cursor additional)
                                         (funcall found iterator environment stack)
                                       (if handled
-                                          (values binding-sets valid cursor wrapper)
+                                          (values binding-sets valid cursor additional)
                                         (fallback-optimizers
                                          (make-symbol (format nil "~A-VALID" (symbol-name f)))
                                          (make-symbol (format nil "~A-CURSOR" (symbol-name f)))
@@ -386,7 +393,8 @@ See the manual"
             (:conc-name "IE-"))
   ;; an entry in the alist from unique iterator to information for it.
   valid-form
-  cursor-form)
+  cursor-form
+  types)
 
 (defun call/compiling-iterator-optimizers (f unique-iterators environment)
   ;; call F, which should return a single form, returning its result
@@ -399,22 +407,36 @@ See the manual"
                             (itable '()))
       (if (null itail)
           (funcall f (nreverse itable))
-      (destructuring-bind (this-iterator . more-iterators) itail
-        (multiple-value-bind (binding-sets valid-form cursor-form wrapper)
-            (iterator-optimizers (unique-iterator-iterator this-iterator) environment)
-          (funcall
-           (or wrapper #'identity)
-           (iterate next-binding-set ((bstail binding-sets))
-             (if (null bstail)
-                 (next-iterator more-iterators (acons this-iterator
-                                                      (make-itable-entry
-                                                       :valid-form valid-form
-                                                       :cursor-form cursor-form)
-                                                      itable))
-               (destructuring-bind ((vars form &rest decls) . more-binding-sets) bstail
-                 `(multiple-value-bind ,vars ,form
-                    ,@decls
-                    ,(next-binding-set more-binding-sets))))))))))))
+        (destructuring-bind (this-iterator . more-iterators) itail
+          (multiple-value-bind (binding-sets valid-form cursor-form additional)
+              (iterator-optimizers (unique-iterator-iterator this-iterator) environment)
+            (multiple-value-bind (wrapper types)
+                (destructuring-match additional
+                  (f
+                   (:when (functionp f))
+                   (values f nil))
+                  (f
+                   (:when (and (symbolp f)
+                               (fboundp f)))
+                   (values (symbol-function f) nil))
+                  ((&key (wrapper #'identity) (types nil) &allow-other-keys)
+                   (values wrapper types))
+                  (otherwise
+                   (star-error "optimizer additional isn't")))
+              (funcall
+               wrapper
+               (iterate next-binding-set ((bstail binding-sets))
+                 (if (null bstail)
+                     (next-iterator more-iterators (acons this-iterator
+                                                          (make-itable-entry
+                                                           :valid-form valid-form
+                                                           :cursor-form cursor-form
+                                                           :types types)
+                                                          itable))
+                   (destructuring-bind ((vars form &rest decls) . more-binding-sets) bstail
+                     `(multiple-value-bind ,vars ,form
+                        ,@decls
+                        ,(next-binding-set more-binding-sets)))))))))))))
 
 (defmacro compiling-iterator-optimizers ((itable-var unique-iterators environment) &body forms)
   `(call/compiling-iterator-optimizers
@@ -436,11 +458,12 @@ See the manual"
            (multiple-value-bind (vars/inits our-declarations)
                (with-collectors (var/init declaration)
                  (dolist (clause (let-binding-clauses this-binding))
-                   (let ((cursor-form (let ((ie (cdr (assoc (clause-unique-iterator clause)
-                                                            itable))))
-                                        (unless ie
-                                          (catastrophe "no cursor form"))
-                                        (ie-cursor-form ie))))
+                   (multiple-value-bind (cursor-form iterator-types)
+                       (let ((ie (cdr (assoc (clause-unique-iterator clause)
+                                             itable))))
+                         (unless ie (catastrophe "no itable entry"))
+                         (values (ie-cursor-form ie)
+                                 (ie-types ie)))
                      (destructuring-match (clause-vars clause)
                        ((var)
                         (let ((variable (if (var-anonymous-p var)
@@ -461,7 +484,17 @@ See the manual"
                               (when (not (null (var-declarations var)))
                                 (declaration `(declare ,@(mapcar (lambda (declaration)
                                                                    `(,declaration ,variable))
-                                                                 (var-declarations var)))))))))
+                                                                 (var-declarations var)))))
+                              (destructuring-match iterator-types
+                                ((type &rest _)
+                                 (:when type)
+                                 (if *obey-iterator-optimizer-types*
+                                     (progn
+                                       (star-note "implicitly declaring ~S as ~S"
+                                                  variable type)
+                                       (declaration `(declare (type ,type ,variable))))
+                                   (star-note "not implicitly declaring ~S as ~S"
+                                              variable type))))))))
                        (otherwise
                         (catastrophe "multiple varables in a let binding's clause"))))))
              `(let ,vars/inits
@@ -471,15 +504,23 @@ See the manual"
                       forms
                     `(,(next-binding more-bindings))))))
           (multiple-value-binding
-           (let* ((clause (multiple-value-binding-clause this-binding))
-                  (cursor-form (let ((ie (cdr (assoc (clause-unique-iterator clause)
-                                                     itable))))
-                                 (unless ie
-                                   (catastrophe "no cursor form"))
-                                 (ie-cursor-form ie))))
+           (let*-values (((clause) (multiple-value-binding-clause this-binding))
+                         ((cursor-form iterator-types)
+                          (let ((ie (cdr (assoc (clause-unique-iterator clause)
+                                                itable))))
+                            (unless ie (catastrophe "no itable entry"))
+                            (values (ie-cursor-form ie) (ie-types ie)))))
+             (unless (typep iterator-types 'list)
+               (star-error "types from iterator optimizer isn't a list?"))
              (multiple-value-bind (variables our-declarations)
                  (with-collectors (variable declaration)
-                   (dolist (var (clause-vars clause))
+                   ;; Iterate over the variables and any iterator
+                   ;; types for them.
+                   (do* ((vt (clause-vars clause) (rest vt))
+                         (var (first vt) (first vt))
+                         (tt iterator-types (rest tt))
+                         (tp (first tt) (first tt)))
+                        ((null vt))
                      (let ((variable (if (var-anonymous-p var)
                                          (make-symbol (symbol-name (var-name var)))
                                        (var-name var))))
@@ -490,7 +531,15 @@ See the manual"
                            (unless (eq (var-type var) t)
                              (declaration `(declare (type ,(var-type var) ,variable))))
                            (when (var-special-p var)
-                             (declaration `(declare (special ,variable)))))))))
+                             (declaration `(declare (special ,variable))))
+                           (when tp
+                             (if *obey-iterator-optimizer-types*
+                                 (progn
+                                   (star-note "implicitly declaring ~S as ~S"
+                                              variable tp)
+                                   (declaration `(declare (type ,tp ,variable))))
+                               (star-note "not implicitly declaring ~S as ~S"
+                                          variable tp))))))))
                `(multiple-value-bind ,variables ,cursor-form
                   ,@our-declarations
                   ,@declarations

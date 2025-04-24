@@ -39,6 +39,7 @@
    #:make-iterator-optimizer-table
    #:*iterator-optimizers*
    #:*enable-iterator-optimizers*
+   #:*obey-iterator-optimizer-types*
    #:define-iterator-optimizer
    #:get-iterator-optimizer
    #:map-iterator-optimizer-table

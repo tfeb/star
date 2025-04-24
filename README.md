@@ -18,6 +18,7 @@ At the time of writing, Štar itself is probably fairly complete.  The predefine
 	- [Valid form](#valid-form)
 	- [Cursor form](#cursor-form)
 	- [Wrapping function](#wrapping-function)
+	- [Variable type information](#variable-type-information)
 	- [An example](#an-example)
 	- [The iterator optimizer tables](#the-iterator-optimizer-tables)
 	- [Defining iterator optimizers: define-iterator-optimizer](#defining-iterator-optimizers-define-iterator-optimizer)
@@ -185,6 +186,17 @@ Variables are bound in parallel: it is in the nature of the construct that seque
 
 Variables are bound for each step (it is possible this might change: don't rely on it).
 
+Iterator optimizers may provide implicit type information for variable bindings.  If`*obey-iterator-optimizer-types*` is true at macroexpansion time then corresponding declarations for iteration variables will be interpolated into the expansion.  This means that code like
+
+```lisp
+(for ((i (in-iterator-with-fixnum-values)))
+  ...
+  (setf i t)
+  ...)
+```
+
+may not be sanitary.  You can tell Štar to ignore this implicit type information by making `*obey-iterator-optimizer-types*`be `nil` at macroexpansion time.  But just don't assign values to iteration variables.
+
 Here is an example which iterates over a list an a string, using the `in-string` iterator defined above.  This declares the type of the variable.
 
 ```lisp
@@ -277,6 +289,8 @@ The `fixnum` declaration applies to both bindings of `a`.  If you want it to app
 
 It's rather hard to think of cases where this might actually be useful, but the facility is still there.
 
+From version 4, iterator optimizers can implicitly specify the types of the variables which will be bound to their values.  `*obey-iterator-optimizer-types*` gives control over this at macroexpansion time.
+
 ## Iterator optimizers
 The protocol described here is exported by `org.tfeb.star/iop` and `org.tfeb.star`.
 
@@ -300,7 +314,11 @@ An iterator optimizer function takes one argument and two optional arguments: th
 - a specification for variable bindings;
 - a form which says if the iterator is valid;
 - a form which produces the values for the next step;
-- optionally a function which is called with the whole form and can wrap code around it.
+- optionally some additional information which is one of
+	-  a function designator (a function or symbol with a global function binding) which is called with the whole form and can wrap code around it;
+	- a plist with possible keys `:wrapper`, `:types` and optionally other, unused keys which specifies one or both of the wrapping function and possible variable types.
+
+Originally it was only possible to specify a wrapper: by using a plist as the fifth value an optimizer can specify  a wrapper, type and in future perhaps other information.
 
 ### Specifications of variable bindings
 This is a list of what are essentially the first two arguments to `multiple-value-bind`, together with zero or more declarations.  This list can have multiple elements which correspond to nested bindings and in which, therefore, later bindings can refer to earlier ones.
@@ -312,7 +330,10 @@ This is just a form which should evaluate to true if the iterator is valid;
 This is a form which should evaluate to the values for the next step.
 
 ### Wrapping function
-This is either `nil` or a function of one argument, which is called at macroexpansion time with the whole body of the iteration form.  It is useful to wrap code around the whole form.
+This is a function of one argument, which is called at macroexpansion time with the whole body of the iteration form.  It is useful to wrap code around the whole form.
+
+### Variable type information
+Using the `:types` key, an optimizer can provide type information for variables.  The value of the key should be a list of type designators for each value of the iterator: `nil` means 'no type information for this value' (this is really the same as `t` except no declaration will be inserted in the `nil` case).  So, for instance, an optimizer for an iterator which returns a single value might provide `(... :types (fixnum) ...)` to say that it is always a fixnum.  See `*obey-iterator-optimizer-types*` below for whether type information is actually inserted.
 
 ### An example
 Here is an iterator which maps over hash-tables:
@@ -386,6 +407,8 @@ Finally it returns a function which wraps  a suitable `with-hash-table-iterator`
 **`*iterator-optimizers*`** is the stack of optimizer tables.  It initially has two entries: a user table and underneath it a builtin table.  If you try to add, remove or mutate entries in the builtin table you will get a continuable error.
 
 **`*enable-iterator-optimizers*`**, if true, enables iterator optimizers.  The default value is true.  This variable matters at macro-expansion time, not run time.
+
+**`*obey-iterator-optimizer-types*`**, if true, enables insertion of type declarations for type informatiom from optimizers.  This restricts any assignments to variables to be of the right type.  The default is true.  This variable matters at macro-expansion time, not run time.
 
 **`get-iterator-optimizer`** finds an iterator optimizer in a table.  It takes two arguments: the optimizer name and the table.  It is an accessor, so you can install new optimizers with it if you wish.
 
@@ -668,6 +691,7 @@ This is a list of which public packages export what.
 ### `org.tfeb.star/iterator-optimizer-protocol`
 - `*enable-iterator-optimizers*`
 - `*iterator-optimizers*`
+- `*obey-iterator-optimizer-types*`
 - `define-iterator-optimizer`
 - `find-iterator-optimizer`
 - `get-iterator-optimizer`
@@ -706,6 +730,7 @@ This is a conduit for the above four packages.
 
 - `*enable-iterator-optimizers*`
 - `*iterator-optimizers*`
+- `*obey-iterator-optimizer-types*`
 - `always`
 - `anonymous-variable-p`
 - `cyclically`
