@@ -66,5 +66,25 @@
         (otherwise
          (error "hopeless: ~S" sdecl))))))
 
+(define-test ("org.tfeb.star.declarations" "raising")
+  ;; Try to test that the declaration-raising bug in FOR is fixed by
+  ;; checking for compiler warnings
+  (false
+   (nth-value 1
+              (compile nil '(lambda ()
+                              (for ((a (in-naturals 10))
+                                    (b (in-naturals)))
+                                (declare (type fixnum a b))
+                                (print (* a b)))))))
+  (false
+   (nth-value 1
+              (compile nil '(lambda (h)
+                              (for (((k v) (in-hash-table h))
+                                    (n (in-naturals)))
+                                (declare (type symbol k v)
+                                         (type integer n))
+                                (when (not k)
+                                  (final n v))))))))
+
 (when *test-individually*
   (test "org.tfeb.star.declarations" :report *test-report-class*))

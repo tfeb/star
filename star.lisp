@@ -23,7 +23,8 @@
 ;;; - a form which returns true if the cursor is valid
 ;;; - the cursor, which returns the next values
 ;;; - additional information, which may be:
-;;;   - a designator for a wrapper function which is which is called with the entire form
+;;;   - a designator for a wrapper function which is which is called
+;;;     with the entire form
 ;;;   - a plist with keys :WRAPPER and :TYPES and possibly other keys
 ;;;
 ;;; A binding set is a list of two or more elements:
@@ -445,107 +446,113 @@ See the manual"
     ,unique-iterators
     ,environment))
 
-(defun compile-bindings (bindings declarations forms itable)
-  ;; Wrap forms corresponding to BINDINGS around DECLARATIONS and FORMS, a
-  ;; list of declarations and forms.  ITABLE is an alist which maps
-  ;; from unique iterators to itable-entries
+(defun compile-bindings (bindings declarations-for-bindings other-declarations forms itable)
+  ;; Wrap forms corresponding to BINDINGS around FORMS.
+  ;; DECLARATIONS-FOR-BINDINGS is a list of declarations for each entry in
+  ;; BINDINGS, OTHER-DECLARATIONS is other declarations to add at the
+  ;; end.  ITABLE is an alist which maps from unique iterators to
+  ;; itable-entries.
+  (unless (= (length bindings) (length declarations-for-bindings))
+    (catastrophe "botched bindings / declarations"))
   (if (null bindings)
-      `(locally ,@declarations ,@forms)
-    (iterate next-binding ((btail bindings))
+      `(locally ,@other-declarations ,@forms)
+    (iterate next-binding ((btail bindings)
+                           (dtail declarations-for-bindings))
       (destructuring-bind (this-binding . more-bindings) btail
-        (etypecase this-binding
-          (let-binding
-           (multiple-value-bind (vars/inits our-declarations)
-               (with-collectors (var/init declaration)
-                 (dolist (clause (let-binding-clauses this-binding))
-                   (multiple-value-bind (cursor-form iterator-types)
-                       (let ((ie (cdr (assoc (clause-unique-iterator clause)
-                                             itable))))
-                         (unless ie (catastrophe "no itable entry"))
-                         (values (ie-cursor-form ie)
-                                 (ie-types ie)))
-                     (destructuring-match (clause-vars clause)
-                       ((var)
-                        (let ((variable (if (var-anonymous-p var)
-                                            (make-symbol (symbol-name (var-name var)))
-                                          (var-name var))))
-                          (var/init `(,variable ,cursor-form))
-                          (if (var-anonymous-p var)
-                              (declaration `(declare (ignore ,variable)))
-                            (progn
-                              (unless (eq (var-type var) t)
-                                (declaration `(declare (type ,(var-type var) ,variable))))
-                              (when (var-special-p var)
-                                (declaration `(declare (special ,variable))))
-                              (when (var-ignore-p var)
-                                (declaration `(declare (ignore ,variable))))
-                              (when (var-ignorable-p var)
-                                (declaration `(declare (ignorable ,variable))))
-                              (when (not (null (var-declarations var)))
-                                (declaration `(declare ,@(mapcar (lambda (declaration)
-                                                                   `(,declaration ,variable))
-                                                                 (var-declarations var)))))
-                              (destructuring-match iterator-types
-                                ((type &rest _)
-                                 (:when type)
-                                 (if *obey-iterator-optimizer-types*
-                                     (progn
-                                       (star-note "implicitly declaring ~S as ~S"
-                                                  variable type)
-                                       (declaration `(declare (type ,type ,variable))))
-                                   (star-note "not implicitly declaring ~S as ~S"
-                                              variable type))))))))
-                       (otherwise
-                        (catastrophe "multiple varables in a let binding's clause"))))))
-             `(let ,vars/inits
-                ,@our-declarations
-                ,@declarations
-                ,@(if (null more-bindings)
-                      forms
-                    `(,(next-binding more-bindings))))))
-          (multiple-value-binding
-           (let*-values (((clause) (multiple-value-binding-clause this-binding))
-                         ((cursor-form iterator-types)
-                          (let ((ie (cdr (assoc (clause-unique-iterator clause)
-                                                itable))))
-                            (unless ie (catastrophe "no itable entry"))
-                            (values (ie-cursor-form ie) (ie-types ie)))))
-             (unless (typep iterator-types 'list)
-               (star-error "types from iterator optimizer isn't a list?"))
-             (multiple-value-bind (variables our-declarations)
-                 (with-collectors (variable declaration)
-                   ;; Iterate over the variables and any iterator
-                   ;; types for them.
-                   (do* ((vt (clause-vars clause) (rest vt))
-                         (var (first vt) (first vt))
-                         (tt iterator-types (rest tt))
-                         (tp (first tt) (first tt)))
-                        ((null vt))
-                     (let ((variable (if (var-anonymous-p var)
-                                         (make-symbol (symbol-name (var-name var)))
-                                       (var-name var))))
-                       (variable variable)
-                       (if (var-anonymous-p var)
-                           (declaration `(declare (ignore ,variable)))
-                         (progn
-                           (unless (eq (var-type var) t)
-                             (declaration `(declare (type ,(var-type var) ,variable))))
-                           (when (var-special-p var)
-                             (declaration `(declare (special ,variable))))
-                           (when tp
-                             (if *obey-iterator-optimizer-types*
-                                 (progn
-                                   (star-note "implicitly declaring ~S as ~S"
-                                              variable tp)
-                                   (declaration `(declare (type ,tp ,variable))))
-                               (star-note "not implicitly declaring ~S as ~S"
-                                          variable tp))))))))
-               `(multiple-value-bind ,variables ,cursor-form
+        (destructuring-bind (this-binding-declarations . more-declarations) dtail
+          (etypecase this-binding
+            (let-binding
+             (multiple-value-bind (vars/inits our-declarations)
+                 (with-collectors (var/init declaration)
+                   (dolist (clause (let-binding-clauses this-binding))
+                     (multiple-value-bind (cursor-form iterator-types)
+                         (let ((ie (cdr (assoc (clause-unique-iterator clause)
+                                               itable))))
+                           (unless ie (catastrophe "no itable entry"))
+                           (values (ie-cursor-form ie)
+                                   (ie-types ie)))
+                       (destructuring-match (clause-vars clause)
+                         ((var)
+                          (let ((variable (if (var-anonymous-p var)
+                                              (make-symbol (symbol-name (var-name var)))
+                                            (var-name var))))
+                            (var/init `(,variable ,cursor-form))
+                            (if (var-anonymous-p var)
+                                (declaration `(declare (ignore ,variable)))
+                              (progn
+                                (unless (eq (var-type var) t)
+                                  (declaration `(declare (type ,(var-type var) ,variable))))
+                                (when (var-special-p var)
+                                  (declaration `(declare (special ,variable))))
+                                (when (var-ignore-p var)
+                                  (declaration `(declare (ignore ,variable))))
+                                (when (var-ignorable-p var)
+                                  (declaration `(declare (ignorable ,variable))))
+                                (when (not (null (var-declarations var)))
+                                  (declaration `(declare ,@(mapcar (lambda (declaration)
+                                                                     `(,declaration ,variable))
+                                                                   (var-declarations var)))))
+                                (destructuring-match iterator-types
+                                  ((type &rest _)
+                                   (:when type)
+                                   (if *obey-iterator-optimizer-types*
+                                       (progn
+                                         (star-note "implicitly declaring ~S as ~S"
+                                                    variable type)
+                                         (declaration `(declare (type ,type ,variable))))
+                                     (star-note "not implicitly declaring ~S as ~S"
+                                                variable type))))))))
+                         (otherwise
+                          (catastrophe "multiple varables in a let binding's clause"))))))
+               `(let ,vars/inits
                   ,@our-declarations
-                  ,@declarations
+                  ,@this-binding-declarations
                   ,@(if (null more-bindings)
-                        forms
-                      `(,(next-binding more-bindings))))))))))))
+                        `(,@other-declarations ,@forms)
+                      `(,(next-binding more-bindings more-declarations))))))
+            (multiple-value-binding
+             (let*-values (((clause) (multiple-value-binding-clause this-binding))
+                           ((cursor-form iterator-types)
+                            (let ((ie (cdr (assoc (clause-unique-iterator clause)
+                                                  itable))))
+                              (unless ie (catastrophe "no itable entry"))
+                              (values (ie-cursor-form ie) (ie-types ie)))))
+               (unless (typep iterator-types 'list)
+                 (star-error "types from iterator optimizer isn't a list?"))
+               (multiple-value-bind (variables our-declarations)
+                   (with-collectors (variable declaration)
+                     ;; Iterate over the variables and any iterator
+                     ;; types for them.
+                     (do* ((vt (clause-vars clause) (rest vt))
+                           (var (first vt) (first vt))
+                           (tt iterator-types (rest tt))
+                           (tp (first tt) (first tt)))
+                          ((null vt))
+                       (let ((variable (if (var-anonymous-p var)
+                                           (make-symbol (symbol-name (var-name var)))
+                                         (var-name var))))
+                         (variable variable)
+                         (if (var-anonymous-p var)
+                             (declaration `(declare (ignore ,variable)))
+                           (progn
+                             (unless (eq (var-type var) t)
+                               (declaration `(declare (type ,(var-type var) ,variable))))
+                             (when (var-special-p var)
+                               (declaration `(declare (special ,variable))))
+                             (when tp
+                               (if *obey-iterator-optimizer-types*
+                                   (progn
+                                     (star-note "implicitly declaring ~S as ~S"
+                                                variable tp)
+                                     (declaration `(declare (type ,tp ,variable))))
+                                 (star-note "not implicitly declaring ~S as ~S"
+                                            variable tp))))))))
+                 `(multiple-value-bind ,variables ,cursor-form
+                    ,@our-declarations
+                    ,@this-binding-declarations
+                    ,@(if (null more-bindings)
+                          `(,@other-declarations ,@forms)
+                        `(,(next-binding more-bindings more-declarations)))))))))))))
 
 (defmacro with-blocks (names &body forms)
   ;; Wrap a bunch of named blocks around something
@@ -565,7 +572,7 @@ See the manual"
 (defun expand-for (clauses body environment &key (for* nil) (name (if for* 'for* 'for)))
   ;; Expand FOR and FOR*.  This now has the recursive expansion,
   ;; formerly done at the macro level, for FOR* in its being, which
-  ;; lets declaration-raising work
+  ;; lets declaration-raising work.
   (let-values (((ok clauses) (parse-clause-descriptions clauses))
                ((declarations forms) (parse-simple-body body)))
     (unless ok
@@ -575,22 +582,35 @@ See the manual"
                      (top t)
                      (seen-varnames '()))
       (with-names (<start> <end>)
-        (let* ((bindings (clauses->bindings current))
-               (our-varnames (collecting
+        (let* ((bindings (clauses->bindings current)) ;coalesced bindings
+               (our-varnames (collecting ;all varnames for CURRENT
                                (dolist (clause current)
-                                 (dolist (name (clause-interesting-varnames clause))
-                                   (collect name)))))
-               (effective-declarations
+                                 (dolist (varname (clause-interesting-varnames clause))
+                                   (collect varname)))))
+               (declaration-lists       ;declarations for each binding
+                (collecting (dolist (binding bindings)
+                              (collect (declarations-for-variables
+                                        declarations
+                                        (etypecase binding
+                                          (let-binding
+                                           (collecting
+                                             (dolist (clause (let-binding-clauses binding))
+                                               (dolist (varname (clause-interesting-varnames clause))
+                                                 (collect varname)))))
+                                          (multiple-value-binding
+                                           (collecting
+                                             (dolist (varname (clause-interesting-varnames
+                                                               (multiple-value-binding-clause
+                                                                binding)))
+                                               (collect varname)))))
+                                        :environment environment)))))
+               (other-declarations      ;any remaining declarations
                 (if (null more)
-                    (append
-                     (declarations-for-variables declarations our-varnames
-                                                 :environment environment)
-                     (declarations-for-variables declarations
-                                                 (append our-varnames seen-varnames)
-                                                 :environment environment
-                                                 :complement t))
-                  (declarations-for-variables declarations our-varnames
-                                              :environment environment)))
+                    (declarations-for-variables declarations
+                                                (append our-varnames seen-varnames)
+                                                :environment environment
+                                                :complement t)
+                  '()))
                (effective-forms (if (null more)
                                     forms
                                   (list
@@ -601,7 +621,8 @@ See the manual"
           (compiling-iterator-optimizers (itable (mapcar #'clause-unique-iterator current)
                                                  environment)
             (let ((compiled-bindings (compile-bindings bindings
-                                                       effective-declarations
+                                                       declaration-lists
+                                                       other-declarations
                                                        effective-forms
                                                        itable)))
               (if top
