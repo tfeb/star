@@ -21,7 +21,7 @@
               (push cdr agenda))
             (when (consp car)
               (push car agenda))
-            (values car cdr)))))))
+            (values car cdr))))))
     (t
      (values 
       (constantly nil)
