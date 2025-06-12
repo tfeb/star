@@ -2,10 +2,12 @@
 
 (needs ((:org.tfeb.star
          :org.tfeb.hax.collecting
+         :org.tfeb.hax.iterate
          :org.tfeb.dsm)
         :compile t :use t))
 
 (defmacro thunk (&body forms)
+  ;; from org.tfeb.hax.utilities, but that clashes with SBCL's CL-USER
   `(lambda () ,@forms))
 
 (defun in-cons-tree (cons-tree)
@@ -23,7 +25,7 @@
               (push car agenda))
             (values car cdr))))))
     (t
-     (values 
+     (values
       (constantly nil)
       (thunk (error "what even is this"))))))
 
@@ -47,34 +49,109 @@
             (values car cdr))
         nil)))))
 
-(defun in-nested-list (list)
-  (assert (typep list 'list) (list) "not a list")
-  (let ((tail list)
-        (agenda '()))
+(defun in-nested-list (list &key
+                            (include-nils t)
+                            (order ':depth-first))
+  (check-type list list)
+  (check-type order (member :depth-first :breadth-first))
+  (let* ((tail list)
+         (agenda '()))
     (values
-     (thunk
-       (or (not (null tail))
-           (not (null agenda))))
-     (thunk
-       (labels ((try (this)
+     (case order
+       (:depth-first
+        (if include-nils
+            (thunk
+              (iterate try ((tl tail)
+                            (ag agenda))
+                (if (null tl)
+                    (if (null ag)
+                        nil
+                      (try (first ag) (rest ag)))
+                  (destructuring-bind (this . more) tl
+                    (typecase this
+                      (cons
+                       (try this (cons more ag)))
+                      (t
+                       (setf tail tl
+                             agenda ag)
+                       t))))))
+          (thunk
+            (iterate try ((tl tail)
+                          (ag agenda))
+              (if (null tl)
+                  (if (null ag)
+                      nil
+                    (try (first ag) (rest ag)))
+                (destructuring-bind (this . more) tl
                   (typecase this
+                    (null
+                     (try more ag))
                     (cons
-                     (unless (null tail)
-                       (push tail agenda))
-                     (setf tail this)
-                     (try (pop tail)))
+                     (try this (cons more ag)))
                     (t
-                     this))))
-       (cond
-        ((not (null tail))
-         (try (pop tail)))
-        ((not (null agenda))
-         (setf tail (pop agenda))
-         (try (pop tail)))
-        (t
-         (error "um"))))))))
+                     (setf tail tl
+                           agenda ag)
+                     t))))))))
+       (:breadth-first
+        (if include-nils
+            (thunk
+              (iterate try ((tl tail)
+                            (ag agenda))
+                (if (null tl)
+                    (if (null ag)
+                        nil
+                      (try (first ag) (rest ag)))
+                  (destructuring-bind (this . more) tl
+                    (typecase this
+                      (cons
+                       (try more (cons this ag)))
+                      (t
+                       (setf tail tl
+                             agenda ag)
+                       t))))))
+          (thunk
+            (iterate try ((tl tail)
+                          (ag agenda))
+              (if (null tl)
+                  (if (null ag)
+                      nil
+                    (try (first ag) (rest ag)))
+                (destructuring-bind (this . more) tl
+                  (typecase this
+                    (null
+                     (try more ag))
+                    (cons
+                     (try more (cons this ag)))
+                    (t
+                     (setf tail tl
+                           agenda ag)
+                     t)))))))))
+     (thunk (pop tail)))))
 
+(unless
+    (and
+     (equal (collecting
+              (for ((e (in-nested-list '((a) b nil c))))
+                (collect e)))
+            '(a b nil c))
+     (equal (collecting
+              (for ((e (in-nested-list '((a) b nil c) :include-nils nil)))
+                (collect e)))
+            '(a b c))
+     (equal (collecting
+              (for ((e (in-nested-list '((a) b nil c) :order :breadth-first)))
+                (collect e)))
+            '(b nil c a))
+     (equal (collecting
+              (for ((e (in-nested-list '((a) b nil c) :order :breadth-first
+                                       :include-nils nil)))
+                (collect e)))
+            '(b c a)))
+  (warn "in-nested-list is buggy"))
+
+#||
 (defun flatten (l)
   (collecting
-    (for ((e (in-nested-list l)))
+    (for ((e (in-nested-list l :include-nils nil)))
       (collect e))))
+||#
