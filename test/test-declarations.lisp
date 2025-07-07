@@ -6,7 +6,9 @@
 (in-package :org.tfeb.star/test)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  #-(or LispWorks SBCL) (error "not implemented"))
+  #-(or LispWorks SBCL) (error "not implemented")
+  #+SBCL
+  (require :sb-cltl2))                  ;make sure it's loaded
 
 (define-test ("org.tfeb.star" "org.tfeb.star.declarations"))
 

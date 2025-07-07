@@ -4,4 +4,7 @@
 (in-package :org.tfeb.star/test)
 
 (unless *test-individually*
-  (test "org.tfeb.star" :report *test-report-class*))
+  (let ((result (test "org.tfeb.star" :report *test-report-class*)))
+    (when (eq (status result) ':failed)
+      (error "Tests failed" result))
+    result))
